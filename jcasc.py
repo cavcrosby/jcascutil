@@ -20,7 +20,7 @@ from ruamel.yaml.scalarstring import FoldedScalarString as folded
 
 # general program configurations
 
-PROGRAM_NAME = os.path.basename(sys.path[0])
+PROGRAM_NAME = os.path.dirname(os.path.abspath(__file__))
 PROGRAM_ROOT = os.getcwd()
 
 
@@ -131,7 +131,7 @@ class JenkinsConfigurationAsCode:
     SUBCOMMAND = "subcommand"
     ADDJOBS_SUBCOMMAND = "addjobs"
     SETUP_SUBCOMMAND = "setup"
-    DOCKER_BUILD_SUBCOMMAND = "docker_build"
+    DOCKER_BUILD_SUBCOMMAND = "docker-build"
     DOCKER_BUILD_SUBCOMMAND_CLI_NAME = "docker_build".replace("_", "-")
 
     # positional/optional argument labels
@@ -189,14 +189,16 @@ class JenkinsConfigurationAsCode:
         num_of_job_dsls = len(job_dsl_files)
         if num_of_job_dsls == 0:
             print(
-                f"{PROGRAM_NAME}: {repo_name} does not have a job-dsl file, skip"
+                f"{PROGRAM_NAME}: {repo_name} does not have a job-dsl file, skip",
+                file=sys.stderr,
             )
             return False
         elif num_of_job_dsls > 1:
             # there should be no ambiguity in what job-dsl script to run
             # NOTE: this is open to change
             print(
-                f"{PROGRAM_NAME}: {repo_name} has more than one job-dsl file, skip!"
+                f"{PROGRAM_NAME}: {repo_name} has more than one job-dsl file, skip!",
+                file=sys.stderr,
             )
             return False
         else:
@@ -285,7 +287,7 @@ class JenkinsConfigurationAsCode:
 
         Returns
         -------
-        bool
+        have_other_programs : bool
             If all the specified programs could be found.
 
         See Also
@@ -293,12 +295,17 @@ class JenkinsConfigurationAsCode:
         OTHER_PROGRAMS_NEEDED
 
         """
+        # TODO(conner@conneracrosby.tech): on the PATH or in the PATH?
+        have_other_programs = True
         for prog in cls.OTHER_PROGRAMS_NEEDED:
             if shutil.which(prog) is None:
-                print(f"{PROGRAM_NAME}: {prog} cannot be found on the PATH!")
-                return False
+                print(
+                    f"{PROGRAM_NAME}: {prog} cannot be found on the PATH!",
+                    file=sys.stderr,
+                )
+                have_other_programs = False
 
-        return True
+        return have_other_programs
 
     @classmethod
     def _find_job_dsl_file(cls):
@@ -361,7 +368,6 @@ class JenkinsConfigurationAsCode:
         GIT_REPOS_DIR_PATH
 
         """
-
         self.repo_urls = self.toml["git"]["repo_urls"]
 
         if pathlib.Path(self.GIT_REPOS_DIR_PATH).exists():
@@ -382,7 +388,7 @@ class JenkinsConfigurationAsCode:
                     check=True,
                 )
         except subprocess.CalledProcessError:
-            print(completed_process.stderr.strip())
+            print(completed_process.stderr.strip(), file=sys.stderr)
             raise
         except PermissionError:
             raise
@@ -406,7 +412,8 @@ class JenkinsConfigurationAsCode:
             # either this means someone did not run the program setup first,
             # or docker somehow missed COPY'ing to the image
             print(
-                f"{PROGRAM_NAME}: '{self.REPOS_TO_TRANSFER_DIR_NAME}' could not be found"
+                f"{PROGRAM_NAME}: '{self.REPOS_TO_TRANSFER_DIR_NAME}' could not be found",
+                file=sys.stderr,
             )
             sys.exit(1)
 
@@ -435,12 +442,16 @@ class JenkinsConfigurationAsCode:
             with open(casc_path, "r") as yaml_f:
                 self.casc = self._yaml_parser.load(yaml_f)
         except TypeError:
-            print(f"{PROGRAM_NAME}: casc file could not be found at:")
-            print(casc_path)
+            print(
+                f"{PROGRAM_NAME}: casc file could not be found at:",
+                file=sys.stderr,
+            )
+            print(casc_path, file=sys.stderr)
             sys.exit(1)
         except KeyError:
             print(
-                f"{PROGRAM_NAME}: {self.CASC_JENKINS_CONFIG_ENV_VAR} does not exist in the current env"
+                f"{PROGRAM_NAME}: {self.CASC_JENKINS_CONFIG_ENV_VAR} does not exist in the current env",
+                file=sys.stderr,
             )
             sys.exit(1)
 
@@ -461,9 +472,10 @@ class JenkinsConfigurationAsCode:
             raise
         except toml.decoder.TomlDecodeError as e:
             print(
-                f"{PROGRAM_NAME}: the configuration file contains syntax error(s), more details below"
+                f"{PROGRAM_NAME}: the configuration file contains syntax error(s), more details below",
+                file=sys.stderr,
             )
-            print(e)
+            print(e, file=sys.stderr)
             sys.exit(1)
 
     def _load_current_git_commit(self):
@@ -486,7 +498,7 @@ class JenkinsConfigurationAsCode:
             encoding="utf-8",
             check=True,
         )
-        self.repo_commit = completed_process.stdout.strip()[:-1]
+        self.repo_commit = completed_process.stdout.strip()
 
     def _load_current_git_branch(self):
         """Grabs the current branch from the git repo.
@@ -505,7 +517,7 @@ class JenkinsConfigurationAsCode:
             encoding="utf-8",
             check=True,
         )
-        self.repo_branch = completed_process.stdout.strip()[:-1]
+        self.repo_branch = completed_process.stdout.strip()
 
     def _docker_build(self, tag, officialbld):
         """Runs a preset docker build command.
@@ -526,7 +538,6 @@ class JenkinsConfigurationAsCode:
         SIGSTOP according to the docs.python.org "...cannot be blocked.".
         Assuming this also means it cannot be caught either.
 
-
         """
 
         def sigint_handler(sigint, frame):
@@ -539,6 +550,7 @@ class JenkinsConfigurationAsCode:
         if not officialbld:
             docker_bldcmd += [
                 "--no-cache",
+                "--tag",
                 tag,
                 ".",
             ]
@@ -549,6 +561,7 @@ class JenkinsConfigurationAsCode:
                 f"BRANCH={self.repo_branch}",
                 "--build-arg",
                 f"COMMIT={self.repo_commit}",
+                "--tag",
                 tag,
                 ".",
             ]
@@ -667,7 +680,11 @@ class JenkinsConfigurationAsCode:
     def main(self, cmd_args):
         """The main of the program."""
         if not self._have_other_programs():
-            sys.exit(1)
+            # this should not be a big enough issue to fail out, as
+            # some scenarios might not need all executables
+            # e.g. docker is not needed when running addjobs in a
+            # constructing image
+            pass
         try:
             self._load_toml()
             if cmd_args[self.SUBCOMMAND] == self.SETUP_SUBCOMMAND:
@@ -695,12 +712,18 @@ class JenkinsConfigurationAsCode:
             sys.exit(1)
         except PermissionError as e:
             print(
-                f"{PROGRAM_NAME}: a particular file/path was unaccessible, {realpath(e)}"
+                f"{PROGRAM_NAME}: a particular file/path was unaccessible, {realpath(e)}",
+                file=sys.stderr,
             )
             sys.exit(1)
         except Exception as e:
-            traceback.print_exception(type(e), e, e.__traceback__)
-            print(f"{PROGRAM_NAME}: an unknown error occurred, see the above!")
+            traceback.print_exception(
+                type(e), e, e.__traceback__, file=sys.stderr
+            )
+            print(
+                f"{PROGRAM_NAME}: an unknown error occurred, see the above!",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
 
