@@ -119,6 +119,9 @@ class JenkinsConfigurationAsCode:
     DEFAULT_STDOUT_FD = sys.stdout
     YAML_PARSER_WIDTH = 1000
     OTHER_PROGRAMS_NEEDED = ["git", "find", "docker"]
+    # should mention this does not cover edge case of
+    # using '_' as the variable name, should be ok
+    ENV_VAR_REGEX = r"^[a-zA-Z_]\w*=.+"
 
     # repo configurations
 
@@ -140,6 +143,8 @@ class JenkinsConfigurationAsCode:
     CASC_PATH_SHORT_OPTION = "c"
     CASC_PATH_LONG_OPTION = "casc_path"
     CASC_PATH_LONG_OPTION_CLI_NAME = CASC_PATH_LONG_OPTION.replace("_", "-")
+    ENV_VAR_SHORT_OPTION = "e"
+    ENV_VAR_LONG_OPTION = "env"
     TRANSFORM_READ_FILE_FROM_WORKSPACE_SHORT_OPTION = "t"
     TRANSFORM_READ_FILE_FROM_WORKSPACE_LONG_OPTION = "transform_rffw"
     TRANSFORM_READ_FILE_FROM_WORKSPACE_CLI_NAME = (
@@ -166,7 +171,6 @@ class JenkinsConfigurationAsCode:
         self.repo_urls = None
         self.repo_commit = None
         self.repo_branch = None
-        self.repo_tag = None
         self.repo_names = list()
         self.casc = ruamel.yaml.comments.CommentedMap()
         self.toml = None
@@ -203,6 +207,42 @@ class JenkinsConfigurationAsCode:
             return False
         else:
             return True
+
+    @classmethod
+    def _expand_env_vars(cls, fc, env_vars):
+        """How env variables are expanded for file-contents.
+
+        Parameters
+        ----------
+        fc : str
+            Represents the contents of a file.
+        env_vars : list of str
+            Env variable pairs, in the format of '<key>=<value>' strs.
+
+        Returns
+        -------
+        str
+            Same file-contents but with env variables evaluated.
+
+        Raises
+        ------
+        SystemExit
+            If any of the env variable pairs passed in are invalid.
+
+        """
+        # will check for '<key>=<value>' format
+        for env_var in env_vars:
+            regex = re.compile(cls.ENV_VAR_REGEX)
+            if regex.search(env_var):
+                os.environ[f"{env_var.split('=')[0]}"] = env_var.split("=")[1]
+            else:
+                print(
+                    f"{PROGRAM_NAME}: '{env_var}' env var is not formatted correctly!",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+        return os.path.expandvars(fc)
 
     @classmethod
     def retrieve_cmd_args(cls):
@@ -244,6 +284,12 @@ class JenkinsConfigurationAsCode:
                 f"--{cls.TRANSFORM_READ_FILE_FROM_WORKSPACE_CLI_NAME}",
                 action="store_true",
                 help="transform readFileFromWorkspace functions to enable usage with casc && job-dsl plugin",
+            )
+            addjobs.add_argument(
+                f"-{cls.ENV_VAR_SHORT_OPTION}",
+                f"--{cls.ENV_VAR_LONG_OPTION}",
+                nargs="*",
+                help="set environment variables, format: '<key>=<value>'",
             )
 
             # setup
@@ -417,7 +463,7 @@ class JenkinsConfigurationAsCode:
             )
             sys.exit(1)
 
-    def _load_casc(self, casc_path):
+    def _load_casc(self, casc_path, env_vars):
         """How the yaml required by the JCasC plugin is loaded.
 
         Usually this is called 'casc.yaml' but can be set to something
@@ -440,7 +486,13 @@ class JenkinsConfigurationAsCode:
             if casc_path is None:
                 casc_path = os.environ[self.CASC_JENKINS_CONFIG_ENV_VAR]
             with open(casc_path, "r") as yaml_f:
-                self.casc = self._yaml_parser.load(yaml_f)
+                if env_vars:
+                    casc_fc = yaml_f.read()
+                    self.casc = self._yaml_parser.load(
+                        self._expand_env_vars(casc_fc, env_vars)
+                    )
+                else:
+                    self.casc = self._yaml_parser.load(yaml_f)
         except TypeError:
             print(
                 f"{PROGRAM_NAME}: casc file could not be found at:",
@@ -693,7 +745,10 @@ class JenkinsConfigurationAsCode:
                 self._clone_git_repos()
             elif cmd_args[self.SUBCOMMAND] == self.ADDJOBS_SUBCOMMAND:
                 self._load_git_repos()
-                self._load_casc(cmd_args[self.CASC_PATH_LONG_OPTION])
+                self._load_casc(
+                    cmd_args[self.CASC_PATH_LONG_OPTION],
+                    cmd_args[self.ENV_VAR_LONG_OPTION],
+                )
                 self._addjobs(
                     cmd_args[
                         self.TRANSFORM_READ_FILE_FROM_WORKSPACE_LONG_OPTION
