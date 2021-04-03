@@ -96,6 +96,29 @@ class JenkinsConfigurationAsCode:
     JOB_DSL_ROOT_KEY_YAML = "jobs"
     JOB_DSL_SCRIPT_KEY_YAML = "script"
     JOB_DSL_FILENAME_REGEX = ".*job-dsl.*"
+
+    # jenkins key values related ({jenkins: {...}})
+
+    JENKINS_ROOT_KEY_YAML = "jenkins"
+    JENKINS_NODES_KEY_YAML = "nodes"
+    PERMANENT_KEY_YAML = "permanent"
+    LAUNCHER_KEY_YAML = "launcher"
+    JNLP_KEY_YAML = "jnlp"
+    WORKDIRSETTINGS_KEY_YAML = "workDirSettings"
+    DISABLED_KEY_YAML = "disabled"
+    FAIL_IF_WORKING_DIR_IS_MISSING_KEY_YAML = "failIfWorkDirIsMissing"
+    INTERNELDIR_KEY_YAML = "internalDir"
+    NAME_KEY_YAML = "name"
+    NODE_DESCRIPTION_KEY_YAML = "nodeDescription"
+    NUM_EXECUTORS_KEY_YAML = "numExecutors"
+    REMOTEFS_KEY_YAML = "remoteFS"
+    RENTENTION_STRATEGY_KEY_YAML = "retentionStrategy"
+
+    NAME_ENV_VAR_NAME = "JENKINS_NODE_NAME"
+    NODE_DESCRIPTION_ENV_VAR_NAME = "JENKINS_NODE_DESC"
+    NUM_EXECUTORS_ENV_VAR_NAME = "JENKINS_NODE_NUM_EXECUTORS"
+    REMOTEFS_ENV_VAR_NAME = "JENKINS_NODE_REMOTE_ROOT_DIR"
+
     # based on the actual env var the casc plugin looks for
     # ...referring to variable name
     CASC_JENKINS_CONFIG_ENV_VAR = "CASC_JENKINS_CONFIG"
@@ -133,9 +156,15 @@ class JenkinsConfigurationAsCode:
     # replace(old, new)
     SUBCOMMAND = "subcommand"
     ADDJOBS_SUBCOMMAND = "addjobs"
+    ADDNODE_PLACEHOLDER_SUBCOMMAND = "addnode-placeholder"
+    ADDNODE_PLACEHOLDER_SUBCOMMAND_CLI_NAME = (
+        ADDNODE_PLACEHOLDER_SUBCOMMAND.replace("_", "-")
+    )
     SETUP_SUBCOMMAND = "setup"
     DOCKER_BUILD_SUBCOMMAND = "docker-build"
-    DOCKER_BUILD_SUBCOMMAND_CLI_NAME = "docker_build".replace("_", "-")
+    DOCKER_BUILD_SUBCOMMAND_CLI_NAME = DOCKER_BUILD_SUBCOMMAND.replace(
+        "_", "-"
+    )
 
     # positional/optional argument labels
     # used at the command line and to reference values of arguments
@@ -145,6 +174,8 @@ class JenkinsConfigurationAsCode:
     CASC_PATH_LONG_OPTION_CLI_NAME = CASC_PATH_LONG_OPTION.replace("_", "-")
     ENV_VAR_SHORT_OPTION = "e"
     ENV_VAR_LONG_OPTION = "env"
+    NUM_OF_NODES_TO_ADD_SHORT_OPTION = "n"
+    NUM_OF_NODES_TO_ADD_LONG_OPTION = "numnodes"
     TRANSFORM_READ_FILE_FROM_WORKSPACE_SHORT_OPTION = "t"
     TRANSFORM_READ_FILE_FROM_WORKSPACE_LONG_OPTION = "transform_rffw"
     TRANSFORM_READ_FILE_FROM_WORKSPACE_CLI_NAME = (
@@ -157,6 +188,9 @@ class JenkinsConfigurationAsCode:
     _DESC = """Description: A small utility to aid in the construction of Jenkins containers."""
     _arg_parser = argparse.ArgumentParser(
         description=_DESC,
+        formatter_class=lambda prog: CustomHelpFormatter(
+            prog, max_help_position=35
+        ),
         allow_abbrev=False,
     )
     _arg_subparsers = _arg_parser.add_subparsers(
@@ -259,6 +293,15 @@ class JenkinsConfigurationAsCode:
             If user input is not considered valid when parsing arguments.
 
         """
+
+        def positive_int(s):
+            """Used as an argument to 'type' for ints > 0."""
+            # string_int
+            s_i = int(s)
+            if not s_i > 0:
+                raise ValueError
+            return s_i
+
         try:
             # addjobs
             # NOTE: max_help_position is increased (default is 24)
@@ -286,6 +329,35 @@ class JenkinsConfigurationAsCode:
                 help="transform readFileFromWorkspace functions to enable usage with casc && job-dsl plugin",
             )
             addjobs.add_argument(
+                f"-{cls.ENV_VAR_SHORT_OPTION}",
+                f"--{cls.ENV_VAR_LONG_OPTION}",
+                nargs="*",
+                help="set environment variables, format: '<key>=<value>'",
+            )
+
+            # addnode-placeholder
+            addnode_placeholder = cls._arg_subparsers.add_parser(
+                cls.ADDNODE_PLACEHOLDER_SUBCOMMAND_CLI_NAME,
+                help=f"will add a placeholder(s) for a new jenkins node, to be defined at run time",
+                formatter_class=lambda prog: CustomHelpFormatter(
+                    prog, max_help_position=35
+                ),
+                allow_abbrev=False,
+            )
+            addnode_placeholder.add_argument(
+                f"-{cls.NUM_OF_NODES_TO_ADD_SHORT_OPTION}",
+                f"--{cls.NUM_OF_NODES_TO_ADD_LONG_OPTION}",
+                default=1,
+                type=positive_int,
+                help="number of nodes (with their placeholders) to add",
+            )
+            addnode_placeholder.add_argument(
+                f"-{cls.CASC_PATH_SHORT_OPTION}",
+                f"--{cls.CASC_PATH_LONG_OPTION_CLI_NAME}",
+                help="load custom casc instead from CASC_JENKINS_CONFIG",
+                metavar="CASC_PATH",
+            )
+            addnode_placeholder.add_argument(
                 f"-{cls.ENV_VAR_SHORT_OPTION}",
                 f"--{cls.ENV_VAR_LONG_OPTION}",
                 nargs="*",
@@ -677,6 +749,113 @@ class JenkinsConfigurationAsCode:
             )
         return job_dsl_fc
 
+    def _addnode_placeholder(self, index):
+        """Adds specific Jenkins node placeholders to be defined at runtime.
+
+        This is allow images to define env vars for another Jenkins node
+        without being explicit. Allowing the user to ignore the placeholders
+        and to instantiate the Jenkins images without other Jenkins nodes.
+
+        Parameters
+        ----------
+        index : int
+            The number of nodes to add to the yaml used by JCasC.
+
+        Notes
+        -----
+        Below is an example of what is trying to be constructed through
+        this function (assumes a pointer is at the list of nodes):
+
+        - permanent:
+            launcher:
+               jnlp:
+                 workDirSettings:
+                   disabled: false
+                   failIfWorkDirIsMissing: false
+                   internalDir: "remoting"
+            name: "foo-host"
+            nodeDescription: "This is currently ran on the host..foo!"
+            numExecutors: 2
+            remoteFS: "/var/lib/jenkins-nodes/foo-host"
+            retentionStrategy: "always"
+
+        """
+        general_casc_ptr = self.casc
+        if index != 0:
+            self._addnode_placeholder(index - 1)
+        else:
+            if self.JENKINS_ROOT_KEY_YAML not in general_casc_ptr:
+                general_casc_ptr[self.JENKINS_ROOT_KEY_YAML] = []
+            general_casc_ptr = general_casc_ptr[self.JENKINS_ROOT_KEY_YAML]
+            if self.JENKINS_NODES_KEY_YAML not in general_casc_ptr:
+                general_casc_ptr[self.JENKINS_NODES_KEY_YAML] = []
+            return
+        general_casc_ptr = general_casc_ptr[self.JENKINS_ROOT_KEY_YAML]
+        general_casc_ptr = general_casc_ptr[self.JENKINS_NODES_KEY_YAML]
+        general_casc_ptr.append(
+            dict(
+                [
+                    (
+                        self.PERMANENT_KEY_YAML,
+                        dict(
+                            [
+                                (
+                                    self.LAUNCHER_KEY_YAML,
+                                    dict(
+                                        [
+                                            (
+                                                self.JNLP_KEY_YAML,
+                                                dict(
+                                                    [
+                                                        (
+                                                            self.WORKDIRSETTINGS_KEY_YAML,
+                                                            dict(
+                                                                [
+                                                                    (
+                                                                        self.DISABLED_KEY_YAML,
+                                                                        "false",
+                                                                    ),
+                                                                    (
+                                                                        self.FAIL_IF_WORKING_DIR_IS_MISSING_KEY_YAML,
+                                                                        "false",
+                                                                    ),
+                                                                    (
+                                                                        self.INTERNELDIR_KEY_YAML,
+                                                                        "remoting",
+                                                                    ),
+                                                                ]
+                                                            ),
+                                                        )
+                                                    ]
+                                                ),
+                                            )
+                                        ]
+                                    ),
+                                ),
+                                (
+                                    self.NAME_KEY_YAML,
+                                    f'"${{{self.NAME_ENV_VAR_NAME}{index}}}"',
+                                ),
+                                (
+                                    self.NODE_DESCRIPTION_KEY_YAML,
+                                    f'"${{{self.NODE_DESCRIPTION_ENV_VAR_NAME}{index}}}"',
+                                ),
+                                (
+                                    self.NUM_EXECUTORS_KEY_YAML,
+                                    f'"${{{self.NUM_EXECUTORS_ENV_VAR_NAME}{index}}}"',
+                                ),
+                                (
+                                    self.REMOTEFS_KEY_YAML,
+                                    f'"${{{self.REMOTEFS_ENV_VAR_NAME}{index}}}"',
+                                ),
+                                (self.RENTENTION_STRATEGY_KEY_YAML, "always"),
+                            ]
+                        ),
+                    )
+                ]
+            )
+        )
+
     def _addjobs(self, t_rffw):
         """Adds job-dsl(s) content(s) to yaml used by JCasC.
 
@@ -753,6 +932,18 @@ class JenkinsConfigurationAsCode:
                     cmd_args[
                         self.TRANSFORM_READ_FILE_FROM_WORKSPACE_LONG_OPTION
                     ]
+                )
+                self._yaml_parser.dump(self.casc, self.DEFAULT_STDOUT_FD)
+            elif (
+                cmd_args[self.SUBCOMMAND]
+                == self.ADDNODE_PLACEHOLDER_SUBCOMMAND
+            ):
+                self._load_casc(
+                    cmd_args[self.CASC_PATH_LONG_OPTION],
+                    cmd_args[self.ENV_VAR_LONG_OPTION],
+                )
+                self._addnode_placeholder(
+                    cmd_args[self.NUM_OF_NODES_TO_ADD_LONG_OPTION]
                 )
                 self._yaml_parser.dump(self.casc, self.DEFAULT_STDOUT_FD)
             elif cmd_args[self.SUBCOMMAND] == self.DOCKER_BUILD_SUBCOMMAND:
