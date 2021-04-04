@@ -834,19 +834,19 @@ class JenkinsConfigurationAsCode:
                                 ),
                                 (
                                     self.NAME_KEY_YAML,
-                                    f'"${{{self.NAME_ENV_VAR_NAME}{index}}}"',
+                                    f'${{{self.NAME_ENV_VAR_NAME}{index}}}',
                                 ),
                                 (
                                     self.NODE_DESCRIPTION_KEY_YAML,
-                                    f'"${{{self.NODE_DESCRIPTION_ENV_VAR_NAME}{index}}}"',
+                                    f'${{{self.NODE_DESCRIPTION_ENV_VAR_NAME}{index}}}',
                                 ),
                                 (
                                     self.NUM_EXECUTORS_KEY_YAML,
-                                    f'"${{{self.NUM_EXECUTORS_ENV_VAR_NAME}{index}}}"',
+                                    f'${{{self.NUM_EXECUTORS_ENV_VAR_NAME}{index}}}',
                                 ),
                                 (
                                     self.REMOTEFS_KEY_YAML,
-                                    f'"${{{self.REMOTEFS_ENV_VAR_NAME}{index}}}"',
+                                    f'${{{self.REMOTEFS_ENV_VAR_NAME}{index}}}',
                                 ),
                                 (self.RENTENTION_STRATEGY_KEY_YAML, "always"),
                             ]
