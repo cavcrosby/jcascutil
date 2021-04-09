@@ -20,7 +20,7 @@ from ruamel.yaml.scalarstring import FoldedScalarString as folded
 
 # general program configurations
 
-PROGRAM_NAME = os.path.dirname(os.path.abspath(__file__))
+PROGRAM_NAME = os.path.basename(os.path.abspath(__file__))
 PROGRAM_ROOT = os.getcwd()
 
 
@@ -174,6 +174,9 @@ class JenkinsConfigurationAsCode:
     CASC_PATH_LONG_OPTION_CLI_NAME = CASC_PATH_LONG_OPTION.replace("_", "-")
     ENV_VAR_SHORT_OPTION = "e"
     ENV_VAR_LONG_OPTION = "env"
+    MERGE_YAML_SHORT_OPTION = "m"
+    MERGE_YAML_LONG_OPTION = "merge_yaml"
+    MERGE_YAML_CLI_NAME = MERGE_YAML_LONG_OPTION.replace("_", "-")
     NUM_OF_NODES_TO_ADD_SHORT_OPTION = "n"
     NUM_OF_NODES_TO_ADD_LONG_OPTION = "numnodes"
     TRANSFORM_READ_FILE_FROM_WORKSPACE_SHORT_OPTION = "t"
@@ -334,6 +337,15 @@ class JenkinsConfigurationAsCode:
                 nargs="*",
                 help="set environment variables, format: '<key>=<value>'",
             )
+            addjobs.add_argument(
+                f"-{cls.MERGE_YAML_SHORT_OPTION}",
+                f"--{cls.MERGE_YAML_CLI_NAME}",
+                help="merge yaml into loaded casc",
+                metavar="YAML_PATH",
+            )
+
+            # TODO(conner@conneracrosby.tech): Move arguments for duplicate cli arguments to class variables
+            # TODO(conner@conneracrosby.tech): See about if exception print messages are consistent
 
             # addnode-placeholder
             addnode_placeholder = cls._arg_subparsers.add_parser(
@@ -362,6 +374,12 @@ class JenkinsConfigurationAsCode:
                 f"--{cls.ENV_VAR_LONG_OPTION}",
                 nargs="*",
                 help="set environment variables, format: '<key>=<value>'",
+            )
+            addnode_placeholder.add_argument(
+                f"-{cls.MERGE_YAML_SHORT_OPTION}",
+                f"--{cls.MERGE_YAML_CLI_NAME}",
+                help="merge yaml into loaded casc",
+                metavar="YAML_PATH",
             )
 
             # setup
@@ -565,7 +583,7 @@ class JenkinsConfigurationAsCode:
                     )
                 else:
                     self.casc = self._yaml_parser.load(yaml_f)
-        except TypeError:
+        except FileNotFoundError:
             print(
                 f"{PROGRAM_NAME}: casc file could not be found at:",
                 file=sys.stderr,
@@ -697,6 +715,44 @@ class JenkinsConfigurationAsCode:
         # check to see if docker_process has exited
         while docker_process.poll() is None:
             signal.signal(signal.SIGINT, sigint_handler)
+
+    def _merge_into_loaded_casc(self, yaml_path):
+        """Merges yaml with the loaded casc.
+
+        Parameters
+        ----------
+        yaml_path : str
+            Name of yaml file to merge with loaded casc.
+
+        Raises
+        ------
+        SystemExit
+            If the yaml file does not exist on the filesystem.
+
+        """
+        def __merge_into_loaded_casc_(yaml_ptr, casc_ptr=self.casc):
+
+            for key in yaml_ptr.keys():
+                # casc currently doesn't have this key and its children,
+                # just graft into the casc
+                if casc_ptr.get(key, default=None) is None:
+                    casc_ptr[key] = yaml_ptr
+                else:
+                    # the original casc has this key,
+                    # so just update key and children
+                    casc_ptr.update(yaml_ptr)
+
+        try:
+            with open(yaml_path, "r") as yaml_f:
+                yaml = self._yaml_parser.load(yaml_f)
+                __merge_into_loaded_casc_(yaml)
+        except FileNotFoundError:
+            print(
+                f"{PROGRAM_NAME}: yaml file to merge could not be found at:",
+                file=sys.stderr,
+            )
+            print(yaml_path, file=sys.stderr)
+            sys.exit(1)
 
     def _transform_rffw(self, repo_name, job_dsl_fc):
         """Transforms 'readFileFromWorkspace' expressions from job-dsl(s).
@@ -834,19 +890,19 @@ class JenkinsConfigurationAsCode:
                                 ),
                                 (
                                     self.NAME_KEY_YAML,
-                                    f'${{{self.NAME_ENV_VAR_NAME}{index}}}',
+                                    f"${{{self.NAME_ENV_VAR_NAME}{index}}}",
                                 ),
                                 (
                                     self.NODE_DESCRIPTION_KEY_YAML,
-                                    f'${{{self.NODE_DESCRIPTION_ENV_VAR_NAME}{index}}}',
+                                    f"${{{self.NODE_DESCRIPTION_ENV_VAR_NAME}{index}}}",
                                 ),
                                 (
                                     self.NUM_EXECUTORS_KEY_YAML,
-                                    f'${{{self.NUM_EXECUTORS_ENV_VAR_NAME}{index}}}',
+                                    f"${{{self.NUM_EXECUTORS_ENV_VAR_NAME}{index}}}",
                                 ),
                                 (
                                     self.REMOTEFS_KEY_YAML,
-                                    f'${{{self.REMOTEFS_ENV_VAR_NAME}{index}}}',
+                                    f"${{{self.REMOTEFS_ENV_VAR_NAME}{index}}}",
                                 ),
                                 (self.RENTENTION_STRATEGY_KEY_YAML, "always"),
                             ]
@@ -907,6 +963,8 @@ class JenkinsConfigurationAsCode:
                     self.casc[self.JOB_DSL_ROOT_KEY_YAML] = [script_entry]
             except PermissionError:
                 raise
+            finally:
+                os.chdir(PROGRAM_ROOT)
 
     def main(self, cmd_args):
         """The main of the program."""
@@ -933,6 +991,10 @@ class JenkinsConfigurationAsCode:
                         self.TRANSFORM_READ_FILE_FROM_WORKSPACE_LONG_OPTION
                     ]
                 )
+                if cmd_args[self.MERGE_YAML_LONG_OPTION]:
+                    self._merge_into_loaded_casc(
+                        cmd_args[self.MERGE_YAML_LONG_OPTION]
+                    )
                 self._yaml_parser.dump(self.casc, self.DEFAULT_STDOUT_FD)
             elif (
                 cmd_args[self.SUBCOMMAND]
@@ -944,6 +1006,10 @@ class JenkinsConfigurationAsCode:
                 )
                 self._addnode_placeholder(
                     cmd_args[self.NUM_OF_NODES_TO_ADD_LONG_OPTION]
+                )
+                if cmd_args[self.MERGE_YAML_LONG_OPTION]:
+                    self._merge_into_loaded_casc(
+                        cmd_args[self.MERGE_YAML_LONG_OPTION]
                 )
                 self._yaml_parser.dump(self.casc, self.DEFAULT_STDOUT_FD)
             elif cmd_args[self.SUBCOMMAND] == self.DOCKER_BUILD_SUBCOMMAND:
