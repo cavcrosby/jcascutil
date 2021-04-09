@@ -95,7 +95,8 @@ class JenkinsConfigurationAsCode:
 
     JOB_DSL_ROOT_KEY_YAML = "jobs"
     JOB_DSL_SCRIPT_KEY_YAML = "script"
-    JOB_DSL_FILENAME_REGEX = ".*job-dsl.*"
+    JOB_DSL_FILENAME_REGEX = r".*job-dsl.*"
+    CASC_FILENAME_REGEX = r"^.*casc.*\.ya?ml$"
 
     # jenkins key values related ({jenkins: {...}})
 
@@ -119,9 +120,6 @@ class JenkinsConfigurationAsCode:
     NUM_EXECUTORS_ENV_VAR_NAME = "JENKINS_NODE_NUM_EXECUTORS"
     REMOTEFS_ENV_VAR_NAME = "JENKINS_NODE_REMOTE_ROOT_DIR"
 
-    # based on the actual env var the casc plugin looks for
-    # ...referring to variable name
-    CASC_JENKINS_CONFIG_ENV_VAR = "CASC_JENKINS_CONFIG"
     # readFileFromWorkspace('./foo')
     READ_FILE_FROM_WORKSPACE_EXPRESSION_REGEX = (
         r"readFileFromWorkspace\(.+\)(?=\))"
@@ -141,15 +139,21 @@ class JenkinsConfigurationAsCode:
     REPOS_TO_TRANSFER_DIR_NAME = "projects"
     DEFAULT_STDOUT_FD = sys.stdout
     YAML_PARSER_WIDTH = 1000
-    OTHER_PROGRAMS_NEEDED = ["git", "find", "docker"]
+    OTHER_PROGRAMS_NEEDED = ["git", "docker"]
     # should mention this does not cover edge case of
     # using '_' as the variable name, should be ok
     ENV_VAR_REGEX = r"^[a-zA-Z_]\w*=.+"
 
     # repo configurations
 
+    DEFAULT_BASE_IMAGE_REPO_URL = (
+        "https://github.com/reap2sow1/jenkins-docker-base"
+    )
+    DEFAULT_BASE_IMAGE_REPO_NAME = os.path.basename(
+        DEFAULT_BASE_IMAGE_REPO_URL
+    )
     GIT_CONFIG_FILE_PATH = "./jobs.toml"
-    GIT_REPOS_DIR_PATH = f"{PROGRAM_ROOT}/{REPOS_TO_TRANSFER_DIR_NAME}"
+    PROJECTS_DIR_PATH = f"{PROGRAM_ROOT}/{REPOS_TO_TRANSFER_DIR_NAME}"
 
     # subcommands labels
 
@@ -205,7 +209,6 @@ class JenkinsConfigurationAsCode:
 
     def __init__(self):
 
-        self.repo_urls = None
         self.repo_commit = None
         self.repo_branch = None
         self.repo_names = list()
@@ -224,7 +227,7 @@ class JenkinsConfigurationAsCode:
         Returns
         -------
         bool
-            If all the job-dsl files meet the program requirements.
+            If all the job-dsl file(s) meet the program requirements.
 
         """
         num_of_job_dsls = len(job_dsl_files)
@@ -244,6 +247,64 @@ class JenkinsConfigurationAsCode:
             return False
         else:
             return True
+
+    @staticmethod
+    def _meets_casc_filereqs(repo_name, casc_files):
+        """Checks if the found casc files meet specific requirements.
+
+        Should note this is solely program specific and not
+        related to the limitations/restrictions of the JCasC plugin itself.
+
+        Returns
+        -------
+        bool
+            If all the casc file(s) meet the program requirements.
+
+        """
+        num_of_cascs = len(casc_files)
+        if num_of_cascs == 0:
+            print(
+                f"{PROGRAM_NAME}: {repo_name} does not have a casc file!",
+                file=sys.stderr,
+            )
+            return False
+        elif num_of_cascs > 1:
+            # there should be no ambiguity in what casc file is worked on
+            # NOTE: this shouldn't be as opened to change considering another
+            # base image could just be created
+            print(
+                f"{PROGRAM_NAME}: {repo_name} has more than one casc!",
+                file=sys.stderr,
+            )
+            return False
+        else:
+            return True
+
+    @staticmethod
+    def _find_file_in_pwd(regex):
+        """Locates files in the PWD using regex.
+
+        Parameters
+        ----------
+        regex : str
+            Regex to use for searching for file(s) in PWD.
+
+        Returns
+        -------
+        files: list of str
+            The files found.
+
+        Raises
+        ------
+        subprocess.CalledProcessError
+            Incase the program used to find files has an issue.
+
+        """
+        regex = re.compile(regex)
+        # NOTE: while the func name assumes one file will be returned
+        # its possible more than one can be returned
+        files = [f for f in os.listdir() if regex.search(f)]
+        return files
 
     @classmethod
     def _expand_env_vars(cls, fc, env_vars):
@@ -346,6 +407,7 @@ class JenkinsConfigurationAsCode:
 
             # TODO(conner@conneracrosby.tech): Move arguments for duplicate cli arguments to class variables
             # TODO(conner@conneracrosby.tech): See about if exception print messages are consistent
+            # TODO(conner@conneracrosby.tech): Add more comments in very condensed code, to improve readability...I'm looking at you main!!
 
             # addnode-placeholder
             addnode_placeholder = cls._arg_subparsers.add_parser(
@@ -443,52 +505,19 @@ class JenkinsConfigurationAsCode:
 
         return have_other_programs
 
-    @classmethod
-    def _find_job_dsl_file(cls):
-        """Locates job-dsl files in the PWD using regex.
-
-        Returns
-        -------
-        job_dsl_files: list of str
-            The job-dsl files found.
-
-        Raises
-        ------
-        subprocess.CalledProcessError
-            Incase the program used to find job-dsl files has an issue.
-
-        See Also
-        --------
-        JOB_DSL_FILENAME_REGEX
-
-        """
-        completed_process = subprocess.run(
-            [
-                "find",
-                ".",
-                "-regextype",
-                "sed",
-                "-maxdepth",
-                "1",
-                "-regex",
-                cls.JOB_DSL_FILENAME_REGEX,
-            ],
-            stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            encoding="utf-8",
-            check=True,
-        )
-        # everything but the last index, as it is just ''
-        # NOTE: while the func name assumes one file will be returned
-        # its possible more than one can be returned
-        job_dsl_files = completed_process.stdout.split("\n")[:-1]
-        return job_dsl_files
-
-    def _clone_git_repos(self):
+    def _clone_git_repos(self, repo_urls, dst=os.getcwd()):
         """Fetches/clones git repos.
 
-        These git repos will be placed into the directory GIT_REPOS_DIR_PATH.
+        These git repos will be placed into the directory PROJECTS_DIR_PATH.
         Makes use of the client git program.
+
+        Parameters
+        ----------
+        repo_urls : list of str
+            Git repo urls to make working copies of.
+        dst : str, optional
+            Destination path where the git repos will be
+            cloned to (default is the PWD).
 
         Raises
         ------
@@ -497,24 +526,16 @@ class JenkinsConfigurationAsCode:
             running.
         PermissionError
             If the user running the command does not have write
-            permissions to GIT_REPOS_DIR_PATH.
-
-        See Also
-        --------
-        GIT_REPOS_DIR_PATH
+            permissions to dst.
 
         """
-        self.repo_urls = self.toml["git"]["repo_urls"]
-
-        if pathlib.Path(self.GIT_REPOS_DIR_PATH).exists():
-            shutil.rmtree(self.GIT_REPOS_DIR_PATH)
-
         # so I remember, finally always executes
         # from try-except-else-finally block.
         try:
-            os.mkdir(self.GIT_REPOS_DIR_PATH)
-            os.chdir(self.GIT_REPOS_DIR_PATH)
-            for repo_url in self.repo_urls:
+            if not pathlib.Path(dst).exists():
+                os.mkdir(dst)
+            os.chdir(dst)
+            for repo_url in repo_urls:
                 repo_name = os.path.basename(repo_url)
                 completed_process = subprocess.run(
                     ["git", "clone", "--quiet", repo_url, repo_name],
@@ -537,11 +558,11 @@ class JenkinsConfigurationAsCode:
         Raises
         ------
         SystemExit
-            If GIT_REPOS_DIR_PATH could not be found.
+            If PROJECTS_DIR_PATH could not be found.
 
         """
-        if pathlib.Path(self.GIT_REPOS_DIR_PATH).exists():
-            os.chdir(self.GIT_REPOS_DIR_PATH)
+        if pathlib.Path(self.PROJECTS_DIR_PATH).exists():
+            os.chdir(self.PROJECTS_DIR_PATH)
             self.repo_names = os.listdir()
             os.chdir("..")
         else:
@@ -557,7 +578,7 @@ class JenkinsConfigurationAsCode:
         """How the yaml required by the JCasC plugin is loaded.
 
         Usually this is called 'casc.yaml' but can be set to something
-        different depending on the CASC_JENKINS_CONFIG_ENV_VAR.
+        different depending on the CASC_FILENAME_REGEX.
 
         Parameters
         ----------
@@ -568,13 +589,34 @@ class JenkinsConfigurationAsCode:
         ------
         SystemExit
             If the casc file does not exist on the filesystem,
-            based on the passed in path, or if the CASC_JENKINS_CONFIG_ENV_VAR
-            does not exist in the current env.
+            based on the passed in path.
+
+        See Also
+        --------
+        CASC_FILENAME_REGEX
 
         """
         try:
             if casc_path is None:
-                casc_path = os.environ[self.CASC_JENKINS_CONFIG_ENV_VAR]
+                # NOTE: by default, the base image's casc yaml
+                # will be loaded. At this point, the repo should have been
+                # cloned. Then the yaml will be searched for, inspected, then
+                # the path to the yaml file is set.
+                os.chdir(self.DEFAULT_BASE_IMAGE_REPO_NAME)
+                casc_filenames = self._find_file_in_pwd(
+                    self.CASC_FILENAME_REGEX
+                )
+                if not self._meets_casc_filereqs(
+                    self.DEFAULT_BASE_IMAGE_REPO_NAME, casc_filenames
+                ):
+                    os.chdir("..")
+                    sys.exit(1)
+                casc_filename = casc_filenames[0]
+                casc_path = os.path.join(
+                    PROGRAM_ROOT,
+                    self.DEFAULT_BASE_IMAGE_REPO_NAME,
+                    casc_filename,
+                )
             with open(casc_path, "r") as yaml_f:
                 if env_vars:
                     casc_fc = yaml_f.read()
@@ -589,12 +631,6 @@ class JenkinsConfigurationAsCode:
                 file=sys.stderr,
             )
             print(casc_path, file=sys.stderr)
-            sys.exit(1)
-        except KeyError:
-            print(
-                f"{PROGRAM_NAME}: {self.CASC_JENKINS_CONFIG_ENV_VAR} does not exist in the current env",
-                file=sys.stderr,
-            )
             sys.exit(1)
 
     def _load_toml(self):
@@ -730,6 +766,7 @@ class JenkinsConfigurationAsCode:
             If the yaml file does not exist on the filesystem.
 
         """
+
         def __merge_into_loaded_casc_(yaml_ptr, casc_ptr=self.casc):
 
             for key in yaml_ptr.keys():
@@ -926,11 +963,13 @@ class JenkinsConfigurationAsCode:
         _transform_rffw
 
         """
-        os.chdir(self.GIT_REPOS_DIR_PATH)
+        os.chdir(self.PROJECTS_DIR_PATH)
         for repo_name in self.repo_names:
             try:
                 os.chdir(repo_name)
-                job_dsl_filenames = self._find_job_dsl_file()
+                job_dsl_filenames = self._find_file_in_pwd(
+                    self.JOB_DSL_FILENAME_REGEX
+                )
                 if not self._meets_job_dsl_filereqs(
                     repo_name, job_dsl_filenames
                 ):
@@ -977,9 +1016,17 @@ class JenkinsConfigurationAsCode:
         try:
             self._load_toml()
             if cmd_args[self.SUBCOMMAND] == self.SETUP_SUBCOMMAND:
-                if pathlib.Path(self.GIT_REPOS_DIR_PATH).exists():
-                    shutil.rmtree(self.GIT_REPOS_DIR_PATH)
-                self._clone_git_repos()
+                # clones repos to be used by job-dsl at container runtime
+                if pathlib.Path(self.PROJECTS_DIR_PATH).exists():
+                    shutil.rmtree(self.PROJECTS_DIR_PATH)
+                self._clone_git_repos(
+                    self.toml["git"]["repo_urls"], self.PROJECTS_DIR_PATH
+                )
+                if pathlib.Path(self.DEFAULT_BASE_IMAGE_REPO_NAME).exists():
+                    shutil.rmtree(self.DEFAULT_BASE_IMAGE_REPO_NAME)
+                # NOTE: fetches the base Jenkins image, mainly used to get yaml
+                # that is used to automate the install of Jenkins
+                self._clone_git_repos([self.DEFAULT_BASE_IMAGE_REPO_URL])
             elif cmd_args[self.SUBCOMMAND] == self.ADDJOBS_SUBCOMMAND:
                 self._load_git_repos()
                 self._load_casc(
@@ -1010,7 +1057,7 @@ class JenkinsConfigurationAsCode:
                 if cmd_args[self.MERGE_YAML_LONG_OPTION]:
                     self._merge_into_loaded_casc(
                         cmd_args[self.MERGE_YAML_LONG_OPTION]
-                )
+                    )
                 self._yaml_parser.dump(self.casc, self.DEFAULT_STDOUT_FD)
             elif cmd_args[self.SUBCOMMAND] == self.DOCKER_BUILD_SUBCOMMAND:
                 self._load_current_git_branch()
