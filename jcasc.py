@@ -770,10 +770,22 @@ class JenkinsConfigurationAsCode:
         def __merge_into_loaded_casc_(yaml_ptr, casc_ptr=self.casc):
 
             for key in yaml_ptr.keys():
-                # casc currently doesn't have this key and its children,
-                # just graft into the casc
+                # casc currently doesn't have this key and its children
+                # (including if the children are also parent nodes), just graft
+                # into the casc
                 if casc_ptr.get(key, default=None) is None:
-                    casc_ptr[key] = yaml_ptr
+                    # e.g.
+                    # [...]
+                    #   key: yaml_ptr[key]
+                    #   [...]
+                    # [...]
+                    casc_ptr[key] = yaml_ptr[key]
+                elif isinstance(
+                    casc_ptr[key], ruamel.yaml.comments.CommentedMap
+                ):
+                    # NOTE: if the child node is also a parent node,
+                    # we will want to iterate until we get to the bottom
+                    __merge_into_loaded_casc_(yaml_ptr[key], casc_ptr[key])
                 else:
                     # the original casc has this key,
                     # so just update key and children
