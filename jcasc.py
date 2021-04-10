@@ -175,6 +175,10 @@ class JenkinsConfigurationAsCode:
 
     CASC_PATH_SHORT_OPTION = "c"
     CASC_PATH_LONG_OPTION = "casc_path"
+    # as long as the short optional argument is not part
+    # of the same subcommand, then it is ok
+    CLEAN_SHORT_OPTION = "c"
+    CLEAN_LONG_OPTION = "clean"
     CASC_PATH_LONG_OPTION_CLI_NAME = CASC_PATH_LONG_OPTION.replace("_", "-")
     ENV_VAR_SHORT_OPTION = "e"
     ENV_VAR_LONG_OPTION = "env"
@@ -449,6 +453,12 @@ class JenkinsConfigurationAsCode:
                 cls.SETUP_SUBCOMMAND,
                 help="invoked before running docker-build",
                 allow_abbrev=False,
+            )
+            setup.add_argument(
+                f"-{cls.CLEAN_SHORT_OPTION}",
+                f"--{cls.CLEAN_LONG_OPTION}",
+                action="store_true",
+                help="clean PWD of the contents added by setup subcommand",
             )
 
             # docker-build
@@ -1028,17 +1038,18 @@ class JenkinsConfigurationAsCode:
         try:
             self._load_toml()
             if cmd_args[self.SUBCOMMAND] == self.SETUP_SUBCOMMAND:
-                # clones repos to be used by job-dsl at container runtime
                 if pathlib.Path(self.PROJECTS_DIR_PATH).exists():
                     shutil.rmtree(self.PROJECTS_DIR_PATH)
-                self._clone_git_repos(
-                    self.toml["git"]["repo_urls"], self.PROJECTS_DIR_PATH
-                )
                 if pathlib.Path(self.DEFAULT_BASE_IMAGE_REPO_NAME).exists():
                     shutil.rmtree(self.DEFAULT_BASE_IMAGE_REPO_NAME)
-                # NOTE: fetches the base Jenkins image, mainly used to get yaml
-                # that is used to automate the install of Jenkins
-                self._clone_git_repos([self.DEFAULT_BASE_IMAGE_REPO_URL])
+                if not cmd_args[self.CLEAN_LONG_OPTION]:
+                    # clones repos to be used by job-dsl at container runtime
+                    self._clone_git_repos(
+                        self.toml["git"]["repo_urls"], self.PROJECTS_DIR_PATH
+                    )
+                    # NOTE: fetches the base Jenkins image, mainly used to get
+                    # yaml that is used to automate the install of Jenkins
+                    self._clone_git_repos([self.DEFAULT_BASE_IMAGE_REPO_URL])
             elif cmd_args[self.SUBCOMMAND] == self.ADDJOBS_SUBCOMMAND:
                 self._load_git_repos()
                 self._load_casc(
