@@ -917,7 +917,7 @@ class JenkinsConfigurationAsCode:
             name: "foo-host"
             nodeDescription: "This is currently ran on the host..foo!"
             numExecutors: 2
-            remoteFS: "/var/lib/jenkins-nodes/foo-host"
+            remoteFS: "/var/lib/jenkins-agents/foo-host"
             retentionStrategy: "always"
 
         """
