@@ -193,6 +193,8 @@ class JenkinsConfigurationAsCode:
         TRANSFORM_READ_FILE_FROM_WORKSPACE_LONG_OPTION.replace("_", "-")
     )
     DOCKER_TAG_POSITIONAL_ARG = "tag"
+    DOCKER_OPT_SHORT_OPTION = "o"
+    DOCKER_OPT_LONG_OPTION = "opt"
     OFFICIAL_BUILD_SHORT_OPTION = "b"
     OFFICIAL_BUILD_LONG_OPTION = "officialbld"
 
@@ -470,12 +472,22 @@ class JenkinsConfigurationAsCode:
             docker_build = cls._arg_subparsers.add_parser(
                 cls.DOCKER_BUILD_SUBCOMMAND_CLI_NAME,
                 help="runs 'docker build'",
+                formatter_class=lambda prog: CustomHelpFormatter(
+                    prog, max_help_position=35
+                ),
                 allow_abbrev=False,
             )
             docker_build.add_argument(
                 f"{cls.DOCKER_TAG_POSITIONAL_ARG}",
                 metavar="TAG",
                 help="this is to be a normal docker tag, or name:tag format",
+            )
+            docker_build.add_argument(
+                f"-{cls.DOCKER_OPT_SHORT_OPTION}",
+                f"--{cls.DOCKER_OPT_LONG_OPTION}",
+                action="append",
+                nargs="?",
+                help="passes options to 'docker build', e.g. [...] --opt '-t image:v1.0.0' --opt '-t image:latest' ",
             )
             docker_build.add_argument(
                 f"-{cls.OFFICIAL_BUILD_SHORT_OPTION}",
@@ -707,7 +719,7 @@ class JenkinsConfigurationAsCode:
         )
         self.repo_branch = completed_process.stdout.strip()
 
-    def _docker_build(self, tag, officialbld):
+    def _docker_build(self, tag, officialbld, opts=None):
         """Runs a preset docker build command.
 
         Should note only SIGINT is passed to the docker build
@@ -720,6 +732,9 @@ class JenkinsConfigurationAsCode:
             This should be a docker tag, or 'name:tag'.
         officialbld : bool
             Is this an 'official' build?
+        opts : list of str, optional
+            Options to be passed to the docker build
+            subcommand (default is the None).
 
         Notes
         -----
@@ -732,6 +747,14 @@ class JenkinsConfigurationAsCode:
 
             docker_process.send_signal(sigint)
 
+        # needed, else TypeError occurs
+        if opts is None:
+            opts = list()
+        # parsed opts
+        p_opts = [
+            opt for opt_name_value in opts for opt in opt_name_value.split()
+        ]
+
         docker_bldcmd = ["docker", "build"]
         # the '.' represents the path context (or contents) that are sent
         # to the docker daemon
@@ -740,8 +763,9 @@ class JenkinsConfigurationAsCode:
                 "--no-cache",
                 "--tag",
                 tag,
-                ".",
             ]
+            docker_bldcmd += p_opts
+            docker_bldcmd += ["."]
         else:
             docker_bldcmd += [
                 "--no-cache",
@@ -751,13 +775,15 @@ class JenkinsConfigurationAsCode:
                 f"COMMIT={self.repo_commit}",
                 "--tag",
                 tag,
-                ".",
             ]
+            docker_bldcmd += p_opts
+            docker_bldcmd += ["."]
+
         docker_process = subprocess.Popen(
             docker_bldcmd,
             env=os.environ,
         )
-
+        
         # check to see if docker_process has exited
         while docker_process.poll() is None:
             signal.signal(signal.SIGINT, sigint_handler)
@@ -1088,6 +1114,7 @@ class JenkinsConfigurationAsCode:
                 self._docker_build(
                     cmd_args[self.DOCKER_TAG_POSITIONAL_ARG],
                     cmd_args[self.OFFICIAL_BUILD_LONG_OPTION],
+                    cmd_args[self.DOCKER_OPT_LONG_OPTION],
                 )
             sys.exit(0)
         except (subprocess.CalledProcessError):
