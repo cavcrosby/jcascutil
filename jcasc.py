@@ -1062,8 +1062,8 @@ class JenkinsConfigurationAsCode:
             # constructing image
             pass
         try:
-            self._load_toml()
             if cmd_args[self.SUBCOMMAND] == self.SETUP_SUBCOMMAND:
+                self._load_toml()
                 if pathlib.Path(self.PROJECTS_DIR_PATH).exists():
                     shutil.rmtree(self.PROJECTS_DIR_PATH)
                 if pathlib.Path(self.DEFAULT_BASE_IMAGE_REPO_NAME).exists():
