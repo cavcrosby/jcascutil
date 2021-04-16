@@ -27,9 +27,9 @@ PROGRAM_ROOT = os.getcwd()
 class CustomHelpFormatter(argparse.HelpFormatter):
     """A custom HelpFormatter subclass used by argparse.ArgumentParser objects.
 
-    Main change from the original argparse.HelpFormatter has where
-    the format of the option string(s) with its argument
-    has changed. See 'NOTE' below.
+    Main change from the original argparse.HelpFormatter is the
+    format of the option string(s) with there argument(s),
+    see 'NOTE' below.
 
     """
 
@@ -160,9 +160,9 @@ class JenkinsConfigurationAsCode:
     # replace(old, new)
     SUBCOMMAND = "subcommand"
     ADDJOBS_SUBCOMMAND = "addjobs"
-    ADDNODE_PLACEHOLDER_SUBCOMMAND = "addnode-placeholder"
-    ADDNODE_PLACEHOLDER_SUBCOMMAND_CLI_NAME = (
-        ADDNODE_PLACEHOLDER_SUBCOMMAND.replace("_", "-")
+    ADDAGENT_PLACEHOLDER_SUBCOMMAND = "addagent-placeholder"
+    ADDAGENT_PLACEHOLDER_SUBCOMMAND_CLI_NAME = (
+        ADDAGENT_PLACEHOLDER_SUBCOMMAND.replace("_", "-")
     )
     SETUP_SUBCOMMAND = "setup"
     DOCKER_BUILD_SUBCOMMAND = "docker-build"
@@ -185,8 +185,8 @@ class JenkinsConfigurationAsCode:
     MERGE_YAML_SHORT_OPTION = "m"
     MERGE_YAML_LONG_OPTION = "merge_yaml"
     MERGE_YAML_CLI_NAME = MERGE_YAML_LONG_OPTION.replace("_", "-")
-    NUM_OF_NODES_TO_ADD_SHORT_OPTION = "n"
-    NUM_OF_NODES_TO_ADD_LONG_OPTION = "numnodes"
+    NUM_OF_AGENTS_TO_ADD_SHORT_OPTION = "n"
+    NUM_OF_AGENTS_TO_ADD_LONG_OPTION = "numagents"
     TRANSFORM_READ_FILE_FROM_WORKSPACE_SHORT_OPTION = "t"
     TRANSFORM_READ_FILE_FROM_WORKSPACE_LONG_OPTION = "transform_rffw"
     TRANSFORM_READ_FILE_FROM_WORKSPACE_CLI_NAME = (
@@ -212,6 +212,29 @@ class JenkinsConfigurationAsCode:
         dest=SUBCOMMAND,
     )
     _arg_subparsers.required = True
+
+    # following along to, reference:
+    # https://stackoverflow.com/questions/33645859/how-to-add-common-arguments-to-argparse-subcommands
+    # NOTE: this parser is not meant to be invoked with parse_args()!
+    _addcmd_parent_parser = argparse.ArgumentParser(add_help=False)
+    _addcmd_parent_parser.add_argument(
+        f"-{CASC_PATH_SHORT_OPTION}",
+        f"--{CASC_PATH_LONG_OPTION_CLI_NAME}",
+        help="load custom casc instead from CASC_JENKINS_CONFIG",
+        metavar="CASC_PATH",
+    )
+    _addcmd_parent_parser.add_argument(
+        f"-{ENV_VAR_SHORT_OPTION}",
+        f"--{ENV_VAR_LONG_OPTION}",
+        nargs="*",
+        help="set environment variables, format: '<key>=<value>'",
+    )
+    _addcmd_parent_parser.add_argument(
+        f"-{MERGE_YAML_SHORT_OPTION}",
+        f"--{MERGE_YAML_CLI_NAME}",
+        help="merge yaml into loaded casc",
+        metavar="YAML_PATH",
+    )
 
     def __init__(self):
 
@@ -380,17 +403,12 @@ class JenkinsConfigurationAsCode:
             # https://stackoverflow.com/questions/46554084/how-to-reduce-indentation-level-of-argument-help-in-argparse
             addjobs = cls._arg_subparsers.add_parser(
                 cls.ADDJOBS_SUBCOMMAND,
-                help=f"will add Jenkins jobs to loaded configuration based on job-dsl file(s) in repo(s)",
+                help="will add Jenkins jobs to loaded configuration based on job-dsl file(s) in repo(s)",
                 formatter_class=lambda prog: CustomHelpFormatter(
                     prog, max_help_position=35
                 ),
                 allow_abbrev=False,
-            )
-            addjobs.add_argument(
-                f"-{cls.CASC_PATH_SHORT_OPTION}",
-                f"--{cls.CASC_PATH_LONG_OPTION_CLI_NAME}",
-                help="load custom casc instead from CASC_JENKINS_CONFIG",
-                metavar="CASC_PATH",
+                parents=[cls._addcmd_parent_parser],
             )
             addjobs.add_argument(
                 f"-{cls.TRANSFORM_READ_FILE_FROM_WORKSPACE_SHORT_OPTION}",
@@ -398,56 +416,26 @@ class JenkinsConfigurationAsCode:
                 action="store_true",
                 help="transform readFileFromWorkspace functions to enable usage with casc && job-dsl plugin",
             )
-            addjobs.add_argument(
-                f"-{cls.ENV_VAR_SHORT_OPTION}",
-                f"--{cls.ENV_VAR_LONG_OPTION}",
-                nargs="*",
-                help="set environment variables, format: '<key>=<value>'",
-            )
-            addjobs.add_argument(
-                f"-{cls.MERGE_YAML_SHORT_OPTION}",
-                f"--{cls.MERGE_YAML_CLI_NAME}",
-                help="merge yaml into loaded casc",
-                metavar="YAML_PATH",
-            )
 
-            # TODO(conner@conneracrosby.tech): Move arguments for duplicate cli arguments to class variables
             # TODO(conner@conneracrosby.tech): See about if exception print messages are consistent
             # TODO(conner@conneracrosby.tech): Add more comments in very condensed code, to improve readability...I'm looking at you main!!
 
-            # addnode-placeholder
-            addnode_placeholder = cls._arg_subparsers.add_parser(
-                cls.ADDNODE_PLACEHOLDER_SUBCOMMAND_CLI_NAME,
-                help=f"will add a placeholder(s) for a new jenkins node, to be defined at run time",
+            # addagent-placeholder
+            addagent_placeholder = cls._arg_subparsers.add_parser(
+                cls.ADDAGENT_PLACEHOLDER_SUBCOMMAND_CLI_NAME,
+                help=f"will add a placeholder(s) for a new jenkins agent, to be defined at run time",
                 formatter_class=lambda prog: CustomHelpFormatter(
                     prog, max_help_position=35
                 ),
                 allow_abbrev=False,
+                parents=[cls._addcmd_parent_parser],
             )
-            addnode_placeholder.add_argument(
-                f"-{cls.NUM_OF_NODES_TO_ADD_SHORT_OPTION}",
-                f"--{cls.NUM_OF_NODES_TO_ADD_LONG_OPTION}",
+            addagent_placeholder.add_argument(
+                f"-{cls.NUM_OF_AGENTS_TO_ADD_SHORT_OPTION}",
+                f"--{cls.NUM_OF_AGENTS_TO_ADD_LONG_OPTION}",
                 default=1,
                 type=positive_int,
-                help="number of nodes (with their placeholders) to add",
-            )
-            addnode_placeholder.add_argument(
-                f"-{cls.CASC_PATH_SHORT_OPTION}",
-                f"--{cls.CASC_PATH_LONG_OPTION_CLI_NAME}",
-                help="load custom casc instead from CASC_JENKINS_CONFIG",
-                metavar="CASC_PATH",
-            )
-            addnode_placeholder.add_argument(
-                f"-{cls.ENV_VAR_SHORT_OPTION}",
-                f"--{cls.ENV_VAR_LONG_OPTION}",
-                nargs="*",
-                help="set environment variables, format: '<key>=<value>'",
-            )
-            addnode_placeholder.add_argument(
-                f"-{cls.MERGE_YAML_SHORT_OPTION}",
-                f"--{cls.MERGE_YAML_CLI_NAME}",
-                help="merge yaml into loaded casc",
-                metavar="YAML_PATH",
+                help="number of agents (with their placeholders) to add",
             )
 
             # setup
@@ -783,7 +771,7 @@ class JenkinsConfigurationAsCode:
             docker_bldcmd,
             env=os.environ,
         )
-        
+
         # check to see if docker_process has exited
         while docker_process.poll() is None:
             signal.signal(signal.SIGINT, sigint_handler)
@@ -890,22 +878,26 @@ class JenkinsConfigurationAsCode:
             )
         return job_dsl_fc
 
-    def _addnode_placeholder(self, index):
-        """Adds specific Jenkins node placeholders to be defined at runtime.
+    def _addagent_placeholder(self, index):
+        """Adds specific Jenkins agent placeholders to be defined at runtime.
 
-        This is allow images to define env vars for another Jenkins node
+        This is allow images to define env vars for another Jenkins agent
         without being explicit. Allowing the user to ignore the placeholders
-        and to instantiate the Jenkins images without other Jenkins nodes.
+        and to instantiate the Jenkins images without other Jenkins agents.
 
         Parameters
         ----------
         index : int
-            The number of nodes to add to the yaml used by JCasC.
+            The number of agents to add to the yaml used by JCasC.
 
         Notes
         -----
+        Jenkins agents might also be called Jenkins 'nodes'. The term 'agent'
+        will be used where possible to provide more distinction between the
+        main (or master) Jenkins node vs a Jenkins agent.
+
         Below is an example of what is trying to be constructed through
-        this function (assumes a pointer is at the list of nodes):
+        this function (assumes a pointer is at the list of agents):
 
         - permanent:
             launcher:
@@ -923,16 +915,16 @@ class JenkinsConfigurationAsCode:
         """
         general_casc_ptr = self.casc
         if index != 0:
-            self._addnode_placeholder(index - 1)
+            self._addagent_placeholder(index - 1)
         else:
             if self.JENKINS_ROOT_KEY_YAML not in general_casc_ptr:
                 general_casc_ptr[self.JENKINS_ROOT_KEY_YAML] = []
             general_casc_ptr = general_casc_ptr[self.JENKINS_ROOT_KEY_YAML]
-            if self.JENKINS_NODES_KEY_YAML not in general_casc_ptr:
-                general_casc_ptr[self.JENKINS_NODES_KEY_YAML] = []
+            if self.JENKINS_AGENTS_KEY_YAML not in general_casc_ptr:
+                general_casc_ptr[self.JENKINS_AGENTS_KEY_YAML] = []
             return
         general_casc_ptr = general_casc_ptr[self.JENKINS_ROOT_KEY_YAML]
-        general_casc_ptr = general_casc_ptr[self.JENKINS_NODES_KEY_YAML]
+        general_casc_ptr = general_casc_ptr[self.JENKINS_AGENTS_KEY_YAML]
         general_casc_ptr.append(
             dict(
                 [
@@ -1094,14 +1086,14 @@ class JenkinsConfigurationAsCode:
                 self._yaml_parser.dump(self.casc, self.DEFAULT_STDOUT_FD)
             elif (
                 cmd_args[self.SUBCOMMAND]
-                == self.ADDNODE_PLACEHOLDER_SUBCOMMAND
+                == self.ADDAGENT_PLACEHOLDER_SUBCOMMAND
             ):
                 self._load_casc(
                     cmd_args[self.CASC_PATH_LONG_OPTION],
                     cmd_args[self.ENV_VAR_LONG_OPTION],
                 )
-                self._addnode_placeholder(
-                    cmd_args[self.NUM_OF_NODES_TO_ADD_LONG_OPTION]
+                self._addagent_placeholder(
+                    cmd_args[self.NUM_OF_AGENTS_TO_ADD_LONG_OPTION]
                 )
                 if cmd_args[self.MERGE_YAML_LONG_OPTION]:
                     self._merge_into_loaded_casc(
@@ -1139,4 +1131,5 @@ class JenkinsConfigurationAsCode:
 if __name__ == "__main__":
     jcasc = JenkinsConfigurationAsCode()
     args = jcasc.retrieve_cmd_args()
-    jcasc.main(args)
+    # jcasc.main(args)
+    print(args)
