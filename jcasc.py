@@ -66,10 +66,14 @@ class CustomHelpFormatter(argparse.HelpFormatter):
 class JenkinsConfigurationAsCode:
     """A small utility to aid in the construction of Jenkins images/containers.
 
-    From a high level, the functionality implemented is to allow Jenkins
-    images to be created with differing jobs, all in thanks to the
-    job-dsl plugin. Also the JCasC plugin is in use to automate the Jenkins
-    installation on to the containers. Finally, Docker containers are the types
+    From a high level, the functionality implemented is: to allow Jenkins
+    images to be created with differing jobs, allow Jenkins images to be
+    created with different number of agents/nodes (these are optional
+    and are mainly determine at runtime/container creation), the program
+    can setup the PWD with resources needed to perform the two functions
+    mentioned previously, and the program can perform a custom docker build.
+    This is all in thanks to the job-dsl plugin, the JCasC plugin, and the
+    ruamel.yaml library. Finally, Docker containers is the main the type
     of images constructed.
 
     Attributes
@@ -81,8 +85,6 @@ class JenkinsConfigurationAsCode:
         Currently where any yaml output is directed to by default.
     YAML_PARSER_WIDTH : int
         Used by the yaml parser on when to start wrapping text.
-    OTHER_PROGRAMS_NEEDED : list of str
-        Other programs on the PATH needed by this program.
 
     See Also
     --------
@@ -139,7 +141,6 @@ class JenkinsConfigurationAsCode:
     REPOS_TO_TRANSFER_DIR_NAME = "projects"
     DEFAULT_STDOUT_FD = sys.stdout
     YAML_PARSER_WIDTH = 1000
-    OTHER_PROGRAMS_NEEDED = ["git", "docker"]
     # should mention this does not cover edge case of
     # using '_' as the variable name, should be ok
     ENV_VAR_REGEX = r"^[a-zA-Z_]\w*=.+"
@@ -220,7 +221,7 @@ class JenkinsConfigurationAsCode:
     _addcmd_parent_parser.add_argument(
         f"-{CASC_PATH_SHORT_OPTION}",
         f"--{CASC_PATH_LONG_OPTION_CLI_NAME}",
-        help="load custom casc instead from CASC_JENKINS_CONFIG",
+        help="load custom casc instead from the default",
         metavar="CASC_PATH",
     )
     _addcmd_parent_parser.add_argument(
@@ -323,11 +324,6 @@ class JenkinsConfigurationAsCode:
         files: list of str
             The files found.
 
-        Raises
-        ------
-        subprocess.CalledProcessError
-            Incase the program used to find files has an issue.
-
         """
         regex = re.compile(regex)
         # NOTE: while the func name assumes one file will be returned
@@ -337,14 +333,21 @@ class JenkinsConfigurationAsCode:
 
     @classmethod
     def _expand_env_vars(cls, fc, env_vars):
-        """How env variables are expanded for file-contents.
+        """How env variables are expanded for file-contents (fc).
+
+        The env vars passed in through the 'env_vars' variable
+        will be injected into the env before expanding env vars of
+        the file-contents.
+
+        However, a consequence of this is any other env var(s) in the fc
+        will be expanded if that other env var(s) exists in the env.
 
         Parameters
         ----------
         fc : str
             Represents the contents of a file.
         env_vars : list of str
-            Env variable pairs, in the format of '<key>=<value>' strs.
+            Env variable pairs, in the format of '<key>=<value>'.
 
         Returns
         -------
@@ -417,9 +420,6 @@ class JenkinsConfigurationAsCode:
                 help="transform readFileFromWorkspace functions to enable usage with casc && job-dsl plugin",
             )
 
-            # TODO(conner@conneracrosby.tech): See about if exception print messages are consistent
-            # TODO(conner@conneracrosby.tech): Add more comments in very condensed code, to improve readability...I'm looking at you main!!
-
             # addagent-placeholder
             addagent_placeholder = cls._arg_subparsers.add_parser(
                 cls.ADDAGENT_PLACEHOLDER_SUBCOMMAND_CLI_NAME,
@@ -452,11 +452,6 @@ class JenkinsConfigurationAsCode:
             )
 
             # docker-build
-            # NOTE: assumes this script is invoked in a vsc repo that contains
-            # the dockerfile used to construct the docker Jenkins image
-            # NOTE2: aka, the PWD is the context sent to the docker daemon
-            # NOTE3: Branch/commit info will be based on the current context
-            # of the repo
             docker_build = cls._arg_subparsers.add_parser(
                 cls.DOCKER_BUILD_SUBCOMMAND_CLI_NAME,
                 help="runs 'docker build'",
@@ -489,32 +484,6 @@ class JenkinsConfigurationAsCode:
         except SystemExit:
             sys.exit(1)
 
-    @classmethod
-    def _have_other_programs(cls):
-        """Checks if certain programs can be found on the PATH.
-
-        Returns
-        -------
-        have_other_programs : bool
-            If all the specified programs could be found.
-
-        See Also
-        --------
-        OTHER_PROGRAMS_NEEDED
-
-        """
-        # TODO(conner@conneracrosby.tech): on the PATH or in the PATH?
-        have_other_programs = True
-        for prog in cls.OTHER_PROGRAMS_NEEDED:
-            if shutil.which(prog) is None:
-                print(
-                    f"{PROGRAM_NAME}: {prog} cannot be found on the PATH!",
-                    file=sys.stderr,
-                )
-                have_other_programs = False
-
-        return have_other_programs
-
     def _clone_git_repos(self, repo_urls, dst=os.getcwd()):
         """Fetches/clones git repos.
 
@@ -531,36 +500,42 @@ class JenkinsConfigurationAsCode:
 
         Raises
         ------
-        subprocess.CalledProcessError
-            If the git client program has issues when
-            running.
+        FileNotFoundError:
+            If the git executable does not exist on the PATH.
         PermissionError
             If the user running the command does not have write
             permissions to dst.
 
         """
         # so I remember, finally always executes
-        # from try-except-else-finally block.
+        # from try-except-else-finally block
         try:
             if not pathlib.Path(dst).exists():
                 os.mkdir(dst)
             os.chdir(dst)
             for repo_url in repo_urls:
                 repo_name = os.path.basename(repo_url)
-                completed_process = subprocess.run(
+                subprocess.run(
                     ["git", "clone", "--quiet", repo_url, repo_name],
-                    stderr=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
+                    capture_output=True,
                     encoding="utf-8",
                     check=True,
                 )
         except subprocess.CalledProcessError:
-            print(completed_process.stderr.strip(), file=sys.stderr)
             raise
+        except FileNotFoundError as e:
+            # valid 'commands' with an arg to a file that does not exist
+            # will cause a subprocess.CalledProcessError exception
+            # TODO(conner@conneracrosby.tech): on the PATH or in the PATH?
+            print(
+                f"{PROGRAM_NAME}: {e.filename} cannot be found on the PATH!",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         except PermissionError:
             raise
         finally:
-            os.chdir("..")
+            os.chdir(PROGRAM_ROOT)
 
     def _load_git_repos(self):
         """How git repos are loaded.
@@ -574,10 +549,9 @@ class JenkinsConfigurationAsCode:
         if pathlib.Path(self.PROJECTS_DIR_PATH).exists():
             os.chdir(self.PROJECTS_DIR_PATH)
             self.repo_names = os.listdir()
-            os.chdir("..")
+            os.chdir(PROGRAM_ROOT)
         else:
-            # either this means someone did not run the program setup first,
-            # or docker somehow missed COPY'ing to the image
+            # this means someone did not run the program 'setup' first
             print(
                 f"{PROGRAM_NAME}: '{self.REPOS_TO_TRANSFER_DIR_NAME}' could not be found",
                 file=sys.stderr,
@@ -594,12 +568,16 @@ class JenkinsConfigurationAsCode:
         ----------
         casc_path : str
             Path of the casc file.
+        env_vars : list of str
+            Env variable pairs, in the format of '<key>=<value>'.
 
         Raises
         ------
-        SystemExit
+        FileNotFoundError
             If the casc file does not exist on the filesystem,
             based on the passed in path.
+        SystemExit
+            If the casc file does not meet the casc file requirements.
 
         See Also
         --------
@@ -616,17 +594,27 @@ class JenkinsConfigurationAsCode:
                 casc_filenames = self._find_file_in_pwd(
                     self.CASC_FILENAME_REGEX
                 )
+
                 if not self._meets_casc_filereqs(
                     self.DEFAULT_BASE_IMAGE_REPO_NAME, casc_filenames
                 ):
+                    # also SHOULD stay a relative path, so should be ok
+                    # going up one dir...
                     os.chdir("..")
                     sys.exit(1)
+
+                # NOTE: spoiler, at the moment, a casc file requirement
+                # is that the default base image repo can only contain
+                # one 'casc' file
+                #
+                # sets casc file path
                 casc_filename = casc_filenames[0]
                 casc_path = os.path.join(
                     PROGRAM_ROOT,
                     self.DEFAULT_BASE_IMAGE_REPO_NAME,
                     casc_filename,
                 )
+                os.chdir("..")
             with open(casc_path, "r") as yaml_f:
                 if env_vars:
                     casc_fc = yaml_f.read()
@@ -636,12 +624,7 @@ class JenkinsConfigurationAsCode:
                 else:
                     self.casc = self._yaml_parser.load(yaml_f)
         except FileNotFoundError:
-            print(
-                f"{PROGRAM_NAME}: casc file could not be found at:",
-                file=sys.stderr,
-            )
-            print(casc_path, file=sys.stderr)
-            sys.exit(1)
+            raise
 
     def _load_toml(self):
         """How toml files are loaded for the program.
@@ -671,47 +654,77 @@ class JenkinsConfigurationAsCode:
 
         Assumes the PWD is in a git 'working' directory.
 
+        Raises
+        ------
+        FileNotFoundError:
+            If the git executable does not exist on the PATH.
+
         """
         # credits to:
         # https://stackoverflow.com/questions/11168141/find-which-commit-is-currently-checked-out-in-git#answer-42549385
-        completed_process = subprocess.run(
-            [
-                "git",
-                "show",
-                "--format=%h",
-                "--no-patch",
-            ],
-            stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            encoding="utf-8",
-            check=True,
-        )
-        self.repo_commit = completed_process.stdout.strip()
+        try:
+            completed_process = subprocess.run(
+                [
+                    "git",
+                    "show",
+                    "--format=%h",
+                    "--no-patch",
+                ],
+                capture_output=True,
+                encoding="utf-8",
+                check=True,
+            )
+            self.repo_commit = completed_process.stdout.strip()
+        except subprocess.SubprocessError:
+            raise
+        except FileNotFoundError as e:
+            # valid 'commands' with an arg to a file that does not exist
+            # will cause a subprocess.CalledProcessError exception
+            print(
+                f"{PROGRAM_NAME}: {e.filename} cannot be found on the PATH!",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     def _load_current_git_branch(self):
         """Grabs the current branch from the git repo.
 
         Assumes the PWD is in a git 'working' directory.
 
+        Raises
+        ------
+        FileNotFoundError:
+            If the git executable does not exist on the PATH.
+
         """
-        completed_process = subprocess.run(
-            [
-                "git",
-                "branch",
-                "--show-current",
-            ],
-            stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            encoding="utf-8",
-            check=True,
-        )
-        self.repo_branch = completed_process.stdout.strip()
+        try:
+            completed_process = subprocess.run(
+                [
+                    "git",
+                    "branch",
+                    "--show-current",
+                ],
+                capture_output=True,
+                encoding="utf-8",
+                check=True,
+            )
+            self.repo_branch = completed_process.stdout.strip()
+        except subprocess.SubprocessError:
+            raise
+        except FileNotFoundError as e:
+            # valid 'commands' with an arg to a file that does not exist
+            # will cause a subprocess.CalledProcessError exception
+            print(
+                f"{PROGRAM_NAME}: {e.filename} cannot be found on the PATH!",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     def _docker_build(self, tag, officialbld, opts=None):
         """Runs a preset docker build command.
 
         Should note only SIGINT is passed to the docker build
-        process. This should be ok but can be opened to
+        process. This should be good enough but can be opened to
         pass in/handle more process signals.
 
         Parameters
@@ -723,6 +736,11 @@ class JenkinsConfigurationAsCode:
         opts : list of str, optional
             Options to be passed to the docker build
             subcommand (default is the None).
+
+        Raises
+        ------
+        FileNotFoundError:
+            If the docker executable does not exist on the PATH.
 
         Notes
         -----
@@ -767,14 +785,35 @@ class JenkinsConfigurationAsCode:
             docker_bldcmd += p_opts
             docker_bldcmd += ["."]
 
-        docker_process = subprocess.Popen(
-            docker_bldcmd,
-            env=os.environ,
-        )
+        try:
+            docker_process = subprocess.Popen(
+                docker_bldcmd,
+                stderr=subprocess.PIPE,
+                encoding="utf-8",
+                env=os.environ,
+            )
+        except FileNotFoundError as e:
+            # valid 'commands' with an arg to a file that does not exist
+            # will cause a subprocess.CalledProcessError exception
+            #
+            # NOTE: this message is more verbose in saying a file is an
+            # executable vs the generic FileNotFoundError message in main
+            print(
+                f"{PROGRAM_NAME}: {e.filename} cannot be found on the PATH!",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
         # check to see if docker_process has exited
         while docker_process.poll() is None:
             signal.signal(signal.SIGINT, sigint_handler)
+        # docker_process.stderr itself is an _io.TextIOWrapper obj
+        if docker_process.returncode != 0:
+            raise subprocess.CalledProcessError(
+                docker_process.returncode,
+                docker_bldcmd,
+                stderr=docker_process.stderr.read(),
+            )
 
     def _merge_into_loaded_casc(self, yaml_path):
         """Merges yaml with the loaded casc.
@@ -820,12 +859,7 @@ class JenkinsConfigurationAsCode:
                 yaml = self._yaml_parser.load(yaml_f)
                 __merge_into_loaded_casc_(yaml)
         except FileNotFoundError:
-            print(
-                f"{PROGRAM_NAME}: yaml file to merge could not be found at:",
-                file=sys.stderr,
-            )
-            print(yaml_path, file=sys.stderr)
-            sys.exit(1)
+            raise
 
     def _transform_rffw(self, repo_name, job_dsl_fc):
         """Transforms 'readFileFromWorkspace' expressions from job-dsl(s).
@@ -897,7 +931,7 @@ class JenkinsConfigurationAsCode:
         main (or master) Jenkins node vs a Jenkins agent.
 
         Below is an example of what is trying to be constructed through
-        this function (assumes a pointer is at the list of agents):
+        this function (assumes a pointer is at the list of nodes):
 
         - permanent:
             launcher:
@@ -920,11 +954,11 @@ class JenkinsConfigurationAsCode:
             if self.JENKINS_ROOT_KEY_YAML not in general_casc_ptr:
                 general_casc_ptr[self.JENKINS_ROOT_KEY_YAML] = []
             general_casc_ptr = general_casc_ptr[self.JENKINS_ROOT_KEY_YAML]
-            if self.JENKINS_AGENTS_KEY_YAML not in general_casc_ptr:
-                general_casc_ptr[self.JENKINS_AGENTS_KEY_YAML] = []
+            if self.JENKINS_NODES_KEY_YAML not in general_casc_ptr:
+                general_casc_ptr[self.JENKINS_NODES_KEY_YAML] = []
             return
         general_casc_ptr = general_casc_ptr[self.JENKINS_ROOT_KEY_YAML]
-        general_casc_ptr = general_casc_ptr[self.JENKINS_AGENTS_KEY_YAML]
+        general_casc_ptr = general_casc_ptr[self.JENKINS_NODES_KEY_YAML]
         general_casc_ptr.append(
             dict(
                 [
@@ -1010,11 +1044,17 @@ class JenkinsConfigurationAsCode:
                 job_dsl_filenames = self._find_file_in_pwd(
                     self.JOB_DSL_FILENAME_REGEX
                 )
+
                 if not self._meets_job_dsl_filereqs(
                     repo_name, job_dsl_filenames
                 ):
+                    # this should stay relative, so ok with going back up
+                    # one dir
                     os.chdir("..")
                     continue
+
+                # spoiler, at the moment, a project/repo requirement
+                # is that repo only contains one 'job-dsl' file
                 job_dsl_filename = job_dsl_filenames[0]
 
                 # read in the job_dsl file, fc == filecontents
@@ -1027,19 +1067,13 @@ class JenkinsConfigurationAsCode:
                 # https://stackoverflow.com/questions/35433838/how-to-dump-a-folded-scalar-to-yaml-in-python-using-ruamel
                 # ffc == foldedfile-contents
                 job_dsl_ffc = folded(job_dsl_fc)
-                # NOTE2: this handles the situation for multiple job-dsls:
-                # create the 'JOB_DSL_SCRIPT_KEY_YAML: job_dsl_ffc' then
-                # either merge into JOB_DSL_ROOT_KEY_YAML
-                # or create the JOB_DSL_ROOT_KEY_YAML entry and append to it
-                if self.JOB_DSL_ROOT_KEY_YAML in self.casc:
-                    self.casc[self.JOB_DSL_ROOT_KEY_YAML].append(
-                        dict([(self.JOB_DSL_SCRIPT_KEY_YAML, job_dsl_ffc)])
-                    )
-                else:
-                    script_entry = dict(
-                        [(self.JOB_DSL_SCRIPT_KEY_YAML, job_dsl_ffc)]
-                    )
-                    self.casc[self.JOB_DSL_ROOT_KEY_YAML] = [script_entry]
+                # NOTE2: this handles the situation for multiple job-dsl files
+                if self.JOB_DSL_ROOT_KEY_YAML not in self.casc:
+                    self.casc[self.JOB_DSL_ROOT_KEY_YAML] = list()
+                # dict([('sape', 4139)]) ==> {'sape': 4139}
+                self.casc[self.JOB_DSL_ROOT_KEY_YAML].append(
+                    dict([(self.JOB_DSL_SCRIPT_KEY_YAML, job_dsl_ffc)])
+                )
             except PermissionError:
                 raise
             finally:
@@ -1047,12 +1081,6 @@ class JenkinsConfigurationAsCode:
 
     def main(self, cmd_args):
         """The main of the program."""
-        if not self._have_other_programs():
-            # this should not be a big enough issue to fail out, as
-            # some scenarios might not need all executables
-            # e.g. docker is not needed when running addjobs in a
-            # constructing image
-            pass
         try:
             if cmd_args[self.SUBCOMMAND] == self.SETUP_SUBCOMMAND:
                 self._load_toml()
@@ -1060,13 +1088,13 @@ class JenkinsConfigurationAsCode:
                     shutil.rmtree(self.PROJECTS_DIR_PATH)
                 if pathlib.Path(self.DEFAULT_BASE_IMAGE_REPO_NAME).exists():
                     shutil.rmtree(self.DEFAULT_BASE_IMAGE_REPO_NAME)
+                # if actually doing a setup
                 if not cmd_args[self.CLEAN_LONG_OPTION]:
-                    # clones repos to be used by job-dsl at container runtime
                     self._clone_git_repos(
-                        self.toml["git"]["repo_urls"], self.PROJECTS_DIR_PATH
+                        self.toml["git"]["repo_urls"],
+                        dst=self.PROJECTS_DIR_PATH,
                     )
-                    # NOTE: fetches the base Jenkins image, mainly used to get
-                    # yaml that is used to automate the install of Jenkins
+                    # fetches the base Jenkins image repo
                     self._clone_git_repos([self.DEFAULT_BASE_IMAGE_REPO_URL])
             elif cmd_args[self.SUBCOMMAND] == self.ADDJOBS_SUBCOMMAND:
                 self._load_git_repos()
@@ -1109,7 +1137,18 @@ class JenkinsConfigurationAsCode:
                     cmd_args[self.DOCKER_OPT_LONG_OPTION],
                 )
             sys.exit(0)
-        except (subprocess.CalledProcessError):
+        except subprocess.CalledProcessError as e:
+            # why yes, this is like the traceback.print_exception message!
+            print(
+                f"{PROGRAM_NAME}: cmd {e.cmd} returned non-zero exit status {e.returncode}"
+            )
+            print(f"{PROGRAM_NAME}: cmd stderr: {e.stderr.strip()}")
+            sys.exit(1)
+        except FileNotFoundError as e:
+            print(
+                f"{PROGRAM_NAME}: could not find file: {e.filename}",
+                file=sys.stderr,
+            )
             sys.exit(1)
         except PermissionError as e:
             print(
@@ -1131,5 +1170,4 @@ class JenkinsConfigurationAsCode:
 if __name__ == "__main__":
     jcasc = JenkinsConfigurationAsCode()
     args = jcasc.retrieve_cmd_args()
-    # jcasc.main(args)
-    print(args)
+    jcasc.main(args)
