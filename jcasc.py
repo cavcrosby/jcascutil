@@ -27,11 +27,25 @@ PROGRAM_ROOT = os.getcwd()
 class CustomHelpFormatter(argparse.HelpFormatter):
     """A custom HelpFormatter subclass used by argparse.ArgumentParser objects.
 
-    Main change from the original argparse.HelpFormatter is the
+    Change from the original argparse.HelpFormatter are the
     format of the option string(s) with there argument(s),
-    see 'NOTE' below.
+    see 'NOTE' below. Also, optional arguments are now organized
+    in alphabetical order... at least for there help messages. This
+    is more so follow POSIX.
 
     """
+
+    def add_arguments(self, actions):
+        # credits go to the following reference:
+        # https://stackoverflow.com/questions/12268602/sort-argparse-help-alphabetically
+        def _parse_short_option(action):
+            # NOTE: this assumes all options have a short/long version,
+            # will sort based the on short version (0)
+            if action.option_strings:
+                return action.option_strings[0]
+        
+        actions = sorted(actions, key=_parse_short_option)
+        super(CustomHelpFormatter, self).add_arguments(actions)
 
     def _format_action_invocation(self, action):
         if not action.option_strings:
@@ -442,6 +456,9 @@ class JenkinsConfigurationAsCode:
             setup = cls._arg_subparsers.add_parser(
                 cls.SETUP_SUBCOMMAND,
                 help="invoked before running docker-build",
+                formatter_class=lambda prog: CustomHelpFormatter(
+                    prog, max_help_position=35
+                ),
                 allow_abbrev=False,
             )
             setup.add_argument(
