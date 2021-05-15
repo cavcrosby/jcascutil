@@ -190,11 +190,11 @@ class JenkinsConfigurationAsCode:
 
     CASC_PATH_SHORT_OPTION = "c"
     CASC_PATH_LONG_OPTION = "casc_path"
+    CASC_PATH_LONG_OPTION_CLI_NAME = CASC_PATH_LONG_OPTION.replace("_", "-")
     # as long as the short optional argument is not part
     # of the same subcommand, then it is ok
     CLEAN_SHORT_OPTION = "c"
     CLEAN_LONG_OPTION = "clean"
-    CASC_PATH_LONG_OPTION_CLI_NAME = CASC_PATH_LONG_OPTION.replace("_", "-")
     ENV_VAR_SHORT_OPTION = "e"
     ENV_VAR_LONG_OPTION = "env"
     MERGE_YAML_SHORT_OPTION = "m"
@@ -223,8 +223,8 @@ class JenkinsConfigurationAsCode:
     )
     _arg_subparsers = _arg_parser.add_subparsers(
         title=f"{SUBCOMMAND}s",
-        metavar=f"{SUBCOMMAND}s [options ...]",
         dest=SUBCOMMAND,
+        metavar=f"{SUBCOMMAND} [options ...]",
     )
     _arg_subparsers.required = True
 
