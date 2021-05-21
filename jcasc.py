@@ -162,7 +162,7 @@ class JenkinsConfigurationAsCode:
     # repo configurations
 
     DEFAULT_BASE_IMAGE_REPO_URL = (
-        "https://github.com/reap2sow1/jenkins-docker-base"
+        "https://github.com/cavcrosby/jenkins-docker-base"
     )
     DEFAULT_BASE_IMAGE_REPO_NAME = os.path.basename(
         DEFAULT_BASE_IMAGE_REPO_URL
