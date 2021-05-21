@@ -543,7 +543,7 @@ class JenkinsConfigurationAsCode:
         except FileNotFoundError as e:
             # valid 'commands' with an arg to a file that does not exist
             # will cause a subprocess.CalledProcessError exception
-            # TODO(conner@conneracrosby.tech): on the PATH or in the PATH?
+            # TODO(cavcrosby): on the PATH or in the PATH?
             print(
                 f"{PROGRAM_NAME}: {e.filename} cannot be found on the PATH!",
                 file=sys.stderr,
@@ -653,7 +653,7 @@ class JenkinsConfigurationAsCode:
             syntax error.
 
         """
-        # TODO(conner@conneracrosby.tech): generalize configholder and make personal stdlib?
+        # TODO(cavcrosby): generalize configholder and make personal stdlib?
         try:
             self.toml = toml.load(self.GIT_CONFIG_FILE_PATH)
         except PermissionError:
@@ -1079,7 +1079,7 @@ class JenkinsConfigurationAsCode:
                     job_dsl_fc = job_dsl_fh.read()
                 if t_rffw:
                     job_dsl_fc = self._transform_rffw(repo_name, job_dsl_fc)
-                # TODO(conner@conneracrosby.tech): Add for ability for 'file' entry to be added vs script' ???
+                # TODO(cavcrosby): Add for ability for 'file' entry to be added vs script' ???
                 # NOTE: inspired from:
                 # https://stackoverflow.com/questions/35433838/how-to-dump-a-folded-scalar-to-yaml-in-python-using-ruamel
                 # ffc == foldedfile-contents
