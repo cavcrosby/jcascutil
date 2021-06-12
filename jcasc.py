@@ -1094,7 +1094,9 @@ class JenkinsConfigurationAsCode:
             except PermissionError:
                 raise
             finally:
-                os.chdir(PROGRAM_ROOT)
+                os.chdir(self.PROJECTS_DIR_PATH)
+        # to re-establish being back at the project/program root
+        os.chdir(PROGRAM_ROOT)
 
     def main(self, cmd_args):
         """The main of the program."""
