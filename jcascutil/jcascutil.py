@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 # Standard Library Imports
-import subprocess
-import shutil
-import sys
-import re
-import signal
-import traceback
+import argparse
 import os
 import pathlib
-import argparse
-from os.path import realpath
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import traceback
 
 # Third Party Imports
 import ruamel.yaml
+
+# import inspired from:
+# https://stackoverflow.com/questions/35433838/how-to-dump-a-folded-scalar-to-yaml-in-python-using-ruamel#answer-51980082
+from ruamel.yaml import scalarstring
 import toml
-from ruamel.yaml.scalarstring import FoldedScalarString as folded
 
 # Local Application Imports
 
@@ -43,7 +45,7 @@ class CustomHelpFormatter(argparse.HelpFormatter):
             # will sort based the on short version (0)
             if action.option_strings:
                 return action.option_strings[0]
-        
+
         actions = sorted(actions, key=_parse_short_option)
         super(CustomHelpFormatter, self).add_arguments(actions)
 
@@ -435,9 +437,10 @@ class JenkinsConfigurationAsCode:
             )
 
             # addagent-placeholder
+            # TODO(cavcrosby): at moment, the normal subcommand is compared in main vs the cli name. Is there any reason not to just use the cli name?
             addagent_placeholder = cls._arg_subparsers.add_parser(
                 cls.ADDAGENT_PLACEHOLDER_SUBCOMMAND_CLI_NAME,
-                help=f"will add a placeholder(s) for a new jenkins agent, to be defined at run time",
+                help="will add a placeholder(s) for a new jenkins agent, to be defined at run time",
                 formatter_class=lambda prog: CustomHelpFormatter(
                     prog, max_help_position=35
                 ),
@@ -1083,7 +1086,9 @@ class JenkinsConfigurationAsCode:
                 # NOTE: inspired from:
                 # https://stackoverflow.com/questions/35433838/how-to-dump-a-folded-scalar-to-yaml-in-python-using-ruamel
                 # ffc == foldedfile-contents
-                job_dsl_ffc = folded(job_dsl_fc)
+                job_dsl_ffc = scalarstring.FoldedScalarString(
+                    job_dsl_fc
+                )
                 # NOTE2: this handles the situation for multiple job-dsl files
                 if self.JOB_DSL_ROOT_KEY_YAML not in self.casc:
                     self.casc[self.JOB_DSL_ROOT_KEY_YAML] = list()
@@ -1171,7 +1176,7 @@ class JenkinsConfigurationAsCode:
             sys.exit(1)
         except PermissionError as e:
             print(
-                f"{PROGRAM_NAME}: a particular file/path was unaccessible, {realpath(e)}",
+                f"{PROGRAM_NAME}: a particular file/path was unaccessible, {os.path.realpath(e)}",
                 file=sys.stderr,
             )
             sys.exit(1)
