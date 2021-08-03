@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""A tool that works with configuration as code (CasC) files for Jenkins."""
 # Standard Library Imports
 import argparse
 import os
@@ -19,6 +20,7 @@ from ruamel.yaml import scalarstring
 import toml
 
 # Local Application Imports
+import pylib
 
 # general program configurations
 
@@ -26,61 +28,8 @@ PROGRAM_NAME = os.path.basename(os.path.abspath(__file__))
 PROGRAM_ROOT = os.getcwd()
 
 
-class CustomHelpFormatter(argparse.HelpFormatter):
-    """A custom HelpFormatter subclass used by argparse.ArgumentParser objects.
-
-    Change from the original argparse.HelpFormatter are the
-    format of the option string(s) with there argument(s),
-    see 'NOTE' below. Also, optional arguments are now organized
-    in alphabetical order... at least for there help messages. This
-    is more so follow POSIX.
-
-    """
-
-    def add_arguments(self, actions):
-        # credits go to the following reference:
-        # https://stackoverflow.com/questions/12268602/sort-argparse-help-alphabetically
-        def _parse_short_option(action):
-            # NOTE: this assumes all options have a short/long version,
-            # will sort based the on short version (0)
-            if action.option_strings:
-                return action.option_strings[0]
-
-        actions = sorted(actions, key=_parse_short_option)
-        super(CustomHelpFormatter, self).add_arguments(actions)
-
-    def _format_action_invocation(self, action):
-        if not action.option_strings:
-            default = self._get_default_metavar_for_positional(action)
-            (metavar,) = self._metavar_formatter(action, default)(1)
-            return metavar
-
-        else:
-            parts = []
-
-            # if the Optional doesn't take a value, format is:
-            #    -s, --long
-            if action.nargs == 0:
-                parts.extend(action.option_strings)
-
-            # NOTE: if the Optional takes a value, formats are:
-            #    -s, --long=ARG ==> if both short/long
-            #    --long=ARG ==> if just long
-            #    -s=ARG ==> if just short
-            else:
-                default = self._get_default_metavar_for_optional(action)
-                args_string = self._format_args(action, default)
-                for option_string in action.option_strings:
-                    if option_string == action.option_strings[-1]:
-                        parts.append(f"{option_string}={args_string}")
-                    else:
-                        parts.append(option_string)
-
-            return ", ".join(parts)
-
-
 class JenkinsConfigurationAsCode:
-    """A small utility to aid in the construction of Jenkins images/containers.
+    """A utility to aid in the construction of Jenkins images/containers.
 
     From a high level, the functionality implemented is: to allow Jenkins
     images to be created with differing jobs, allow Jenkins images to be
@@ -218,7 +167,7 @@ class JenkinsConfigurationAsCode:
     _DESC = """Description: A small utility to aid in the construction of Jenkins containers."""
     _arg_parser = argparse.ArgumentParser(
         description=_DESC,
-        formatter_class=lambda prog: CustomHelpFormatter(
+        formatter_class=lambda prog: pylib.argparse.CustomRawDescriptionHelpFormatter(
             prog, max_help_position=35
         ),
         allow_abbrev=False,
@@ -423,7 +372,7 @@ class JenkinsConfigurationAsCode:
             addjobs = cls._arg_subparsers.add_parser(
                 cls.ADDJOBS_SUBCOMMAND,
                 help="will add Jenkins jobs to loaded configuration based on job-dsl file(s) in repo(s)",
-                formatter_class=lambda prog: CustomHelpFormatter(
+                formatter_class=lambda prog: pylib.argparse.CustomRawDescriptionHelpFormatter(
                     prog, max_help_position=35
                 ),
                 allow_abbrev=False,
@@ -441,7 +390,7 @@ class JenkinsConfigurationAsCode:
             addagent_placeholder = cls._arg_subparsers.add_parser(
                 cls.ADDAGENT_PLACEHOLDER_SUBCOMMAND_CLI_NAME,
                 help="will add a placeholder(s) for a new jenkins agent, to be defined at run time",
-                formatter_class=lambda prog: CustomHelpFormatter(
+                formatter_class=lambda prog: pylib.argparse.CustomRawDescriptionHelpFormatter(
                     prog, max_help_position=35
                 ),
                 allow_abbrev=False,
@@ -459,7 +408,7 @@ class JenkinsConfigurationAsCode:
             setup = cls._arg_subparsers.add_parser(
                 cls.SETUP_SUBCOMMAND,
                 help="invoked before running docker-build",
-                formatter_class=lambda prog: CustomHelpFormatter(
+                formatter_class=lambda prog: pylib.argparse.CustomRawDescriptionHelpFormatter(
                     prog, max_help_position=35
                 ),
                 allow_abbrev=False,
@@ -475,7 +424,7 @@ class JenkinsConfigurationAsCode:
             docker_build = cls._arg_subparsers.add_parser(
                 cls.DOCKER_BUILD_SUBCOMMAND_CLI_NAME,
                 help="runs 'docker build'",
-                formatter_class=lambda prog: CustomHelpFormatter(
+                formatter_class=lambda prog: pylib.argparse.CustomRawDescriptionHelpFormatter(
                     prog, max_help_position=35
                 ),
                 allow_abbrev=False,
@@ -1086,9 +1035,7 @@ class JenkinsConfigurationAsCode:
                 # NOTE: inspired from:
                 # https://stackoverflow.com/questions/35433838/how-to-dump-a-folded-scalar-to-yaml-in-python-using-ruamel
                 # ffc == foldedfile-contents
-                job_dsl_ffc = scalarstring.FoldedScalarString(
-                    job_dsl_fc
-                )
+                job_dsl_ffc = scalarstring.FoldedScalarString(job_dsl_fc)
                 # NOTE2: this handles the situation for multiple job-dsl files
                 if self.JOB_DSL_ROOT_KEY_YAML not in self.casc:
                     self.casc[self.JOB_DSL_ROOT_KEY_YAML] = list()
