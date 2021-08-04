@@ -95,7 +95,7 @@ class JenkinsConfigurationAsCode:
     READ_FILE_FROM_WORKSPACE_ARGUMENT_REGEX = (
         r"(?<=readFileFromWorkspace\(').+(?='\))"
     )
-    READ_FILE_FROM_WORKSPACE_ARGUMENT_PLACEHOLDER = "_PLACEHOLDER"
+    READ_FILE_FROM_WORKSPACE_ARGUMENT_PLACEHOLDER = "__PLACEHOLDER__"
     READ_FILE_FROM_WORKSPACE_EXPRESSION_REPLACEMENT = (
         f"new File('{READ_FILE_FROM_WORKSPACE_ARGUMENT_PLACEHOLDER}').text"
     )
@@ -106,8 +106,6 @@ class JenkinsConfigurationAsCode:
     REPOS_TO_TRANSFER_DIR_NAME = "projects"
     DEFAULT_STDOUT_FD = sys.stdout
     YAML_PARSER_WIDTH = 1000
-    # Should mention this does not cover edge case of
-    # using '_' as the variable name.
     ENV_VAR_REGEX = r"^[a-zA-Z_]\w*=.+"
 
     # repo configurations
