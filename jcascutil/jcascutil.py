@@ -106,6 +106,9 @@ class JenkinsConfigurationAsCode:
     REPOS_TO_TRANSFER_DIR_NAME = "projects"
     DEFAULT_STDOUT_FD = sys.stdout
     YAML_PARSER_WIDTH = 1000
+    SHELL_VARIABLE_REGEX = r"\$\{{1}\w+\}{1}|\$[a-zA-Z_]\w*"
+    # assumes that any parsing will be on vars that are known shell variables
+    SHELL_VARIABLE_NAME_REGEX = r"(?<=\$\{)\w+(?=\})|(?<=\$)[a-zA-Z_]\w*"
     ENV_VAR_REGEX = r"^[a-zA-Z_]\w*=.+"
 
     # repo configurations
@@ -301,8 +304,8 @@ class JenkinsConfigurationAsCode:
 
         Parameters
         ----------
-        file : str
-            Represents the contents of a file.
+        file : _io.TextIOWrapper
+            Represents a file descriptor to the file.
         env_vars : list of str
             Env variable pairs, in the format of '<key>=<value>'.
 
@@ -318,10 +321,14 @@ class JenkinsConfigurationAsCode:
 
         """
         # will check for '<key>=<value>' format
+        buffer = []
+        env_var_names_to_values = dict()
         for env_var in env_vars:
             regex = re.compile(cls.ENV_VAR_REGEX)
             if regex.search(env_var):
-                os.environ[f"{env_var.split('=')[0]}"] = env_var.split("=")[1]
+                env_var_names_to_values[env_var.split("=")[0]] = env_var.split(
+                    "="
+                )[1]
             else:
                 print(
                     f"{PROGRAM_NAME}: '{env_var}' env var is not formatted "
@@ -330,8 +337,42 @@ class JenkinsConfigurationAsCode:
                 )
                 sys.exit(1)
 
-        # TODO(cavcrosby): currently this expands all env vars in a file if they all exist in the current env, perhaps this isn't desired?
-        return os.path.expandvars(file)
+        for line in file.readlines():
+            line_env_vars = re.findall(cls.SHELL_VARIABLE_REGEX, line)
+            modified_line = line
+            if line_env_vars:
+                # I do not want duplicate env vars recorded, overriding the env
+                # var value works to my benefit here since each env var value
+                # will be the same.
+                line_env_var_names_to_env_vars = {
+                    list(pair.keys())[0]: list(pair.values())[0]
+                    for pair in list(
+                        map(
+                            lambda env_var: {
+                                re.search(
+                                    cls.SHELL_VARIABLE_NAME_REGEX, env_var
+                                )[0]: env_var
+                            },
+                            line_env_vars,
+                        )
+                    )
+                }
+                for env_var_name in env_var_names_to_values.keys():
+                    if env_var_name in line_env_var_names_to_env_vars:
+                        modified_line = re.sub(
+                            re.escape(
+                                line_env_var_names_to_env_vars[env_var_name]
+                            ),
+                            env_var_names_to_values[env_var_name],
+                            modified_line,
+                        )
+            buffer.append(modified_line)
+        # One limitation that exists is that env var values will not include
+        # single/double quotes once constructed back into the transformed file.
+        # However, depending on the casc serialization format, this may not be
+        # of general concern (e.g. yaml). Reference:
+        # https://stackoverflow.com/questions/19109912/yaml-do-i-need-quotes-for-strings-in-yaml
+        return "".join(buffer)
 
     @classmethod
     def retrieve_cmd_args(cls):
@@ -562,16 +603,14 @@ class JenkinsConfigurationAsCode:
                 casc_file,
             )
             os.chdir(PROGRAM_ROOT)
-        # 'as' variable name inspired from Python stdlib documentation:
-        # https://docs.python.org/3/reference/compound_stmts.html#grammar-token-with-stmt
-        with open(casc_path, "r") as casc_target:
-            if env_vars:
-                casc = casc_target.read()
-                self.casc = self._yaml_parser.load(
-                    self._expand_env_vars(casc, env_vars)
-                )
-            else:
-                self.casc = self._yaml_parser.load(casc_target)
+        casc_file_descriptor = open(casc_path, "r")
+        if env_vars:
+            self.casc = self._yaml_parser.load(
+                self._expand_env_vars(casc_file_descriptor, env_vars)
+            )
+        else:
+            self.casc = self._yaml_parser.load(casc_file_descriptor)
+        casc_file_descriptor.close()
 
     def _load_configs(self):
         """Load the program configuration file.
@@ -776,6 +815,8 @@ class JenkinsConfigurationAsCode:
                 else:
                     loaded_casc_ptr.update(casc_ptr)
 
+        # 'as' variable name inspired from Python stdlib documentation:
+        # https://docs.python.org/3/reference/compound_stmts.html#grammar-token-with-stmt
         with open(casc_path, "r") as casc_target:
             casc = self._yaml_parser.load(casc_target)
             __merge_into_loaded_casc_(casc)
