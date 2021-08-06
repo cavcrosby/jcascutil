@@ -304,8 +304,8 @@ class JenkinsConfigurationAsCode:
 
         Parameters
         ----------
-        file : _io.TextIOWrapper
-            Represents a file descriptor to the file.
+        file : str
+            Represents the contents of a file.
         env_vars : list of str
             Env variable pairs, in the format of '<key>=<value>'.
 
@@ -337,7 +337,7 @@ class JenkinsConfigurationAsCode:
                 )
                 sys.exit(1)
 
-        for line in file.readlines():
+        for line in file.splitlines(keepends=True):
             line_env_vars = re.findall(cls.SHELL_VARIABLE_REGEX, line)
             modified_line = line
             if line_env_vars:
@@ -367,11 +367,6 @@ class JenkinsConfigurationAsCode:
                             modified_line,
                         )
             buffer.append(modified_line)
-        # One limitation that exists is that env var values will not include
-        # single/double quotes once constructed back into the transformed file.
-        # However, depending on the casc serialization format, this may not be
-        # of general concern (e.g. yaml). Reference:
-        # https://stackoverflow.com/questions/19109912/yaml-do-i-need-quotes-for-strings-in-yaml
         return "".join(buffer)
 
     @classmethod
@@ -561,7 +556,7 @@ class JenkinsConfigurationAsCode:
             )
             sys.exit(1)
 
-    def _load_casc(self, casc_path, env_vars):
+    def _load_casc(self, casc_path):
         """Load the casc required by the JCasC plugin.
 
         Usually this file is called 'casc.yaml' but can be set to something
@@ -571,8 +566,6 @@ class JenkinsConfigurationAsCode:
         ----------
         casc_path : str
             Path of the casc file.
-        env_vars : list of str
-            Env variable pairs, in the format of '<key>=<value>'.
 
         Raises
         ------
@@ -603,14 +596,8 @@ class JenkinsConfigurationAsCode:
                 casc_file,
             )
             os.chdir(PROGRAM_ROOT)
-        casc_file_descriptor = open(casc_path, "r")
-        if env_vars:
-            self.casc = self._yaml_parser.load(
-                self._expand_env_vars(casc_file_descriptor, env_vars)
-            )
-        else:
-            self.casc = self._yaml_parser.load(casc_file_descriptor)
-        casc_file_descriptor.close()
+        with open(casc_path, "r") as casc_target:
+            self.casc = self._yaml_parser.load(casc_target)
 
     def _load_configs(self):
         """Load the program configuration file.
@@ -1048,8 +1035,7 @@ class JenkinsConfigurationAsCode:
             elif cmd_args[self.SUBCOMMAND] == self.ADDJOBS_SUBCOMMAND:
                 self._load_vcs_repos()
                 self._load_casc(
-                    cmd_args[self.CASC_PATH_LONG_OPTION],
-                    cmd_args[self.ENV_VAR_LONG_OPTION],
+                    cmd_args[self.CASC_PATH_LONG_OPTION]
                 )
                 self._addjobs(
                     cmd_args[
@@ -1060,14 +1046,24 @@ class JenkinsConfigurationAsCode:
                     self._merge_into_loaded_casc(
                         cmd_args[self.MERGE_CASC_LONG_OPTION]
                     )
-                self._yaml_parser.dump(self.casc, self.DEFAULT_STDOUT_FD)
+                if cmd_args[self.ENV_VAR_LONG_OPTION]:
+                    self._yaml_parser.dump(
+                        self.casc,
+                        self.DEFAULT_STDOUT_FD,
+                        transform=(
+                            lambda string: self._expand_env_vars(
+                                string, cmd_args[self.ENV_VAR_LONG_OPTION]
+                            )
+                        ),
+                    )
+                else:
+                    self._yaml_parser.dump(self.casc, self.DEFAULT_STDOUT_FD)
             elif (
                 cmd_args[self.SUBCOMMAND]
                 == self.ADDAGENT_PLACEHOLDER_SUBCOMMAND
             ):
                 self._load_casc(
                     cmd_args[self.CASC_PATH_LONG_OPTION],
-                    cmd_args[self.ENV_VAR_LONG_OPTION],
                 )
                 self._addagent_placeholder(
                     cmd_args[self.NUM_OF_AGENTS_TO_ADD_LONG_OPTION]
@@ -1076,7 +1072,18 @@ class JenkinsConfigurationAsCode:
                     self._merge_into_loaded_casc(
                         cmd_args[self.MERGE_CASC_LONG_OPTION]
                     )
-                self._yaml_parser.dump(self.casc, self.DEFAULT_STDOUT_FD)
+                if cmd_args[self.ENV_VAR_LONG_OPTION]:
+                    self._yaml_parser.dump(
+                        self.casc,
+                        self.DEFAULT_STDOUT_FD,
+                        transform=(
+                            lambda string: self._expand_env_vars(
+                                string, cmd_args[self.ENV_VAR_LONG_OPTION]
+                            )
+                        ),
+                    )
+                else:
+                    self._yaml_parser.dump(self.casc, self.DEFAULT_STDOUT_FD)
             elif cmd_args[self.SUBCOMMAND] == self.DOCKER_BUILD_SUBCOMMAND:
                 self._load_current_git_branch()
                 self._load_current_git_commit()
