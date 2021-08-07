@@ -6,7 +6,6 @@ import os
 import pathlib
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import traceback
@@ -128,7 +127,6 @@ class JenkinsConfigurationAsCode:
     ADDJOBS_SUBCOMMAND = "addjobs"
     ADDAGENT_PLACEHOLDER_SUBCOMMAND = "addagent-placeholder"
     SETUP_SUBCOMMAND = "setup"
-    DOCKER_BUILD_SUBCOMMAND = "docker-build"
 
     # positional/optional argument labels
     # used at the command line and to reference values of arguments
@@ -152,11 +150,6 @@ class JenkinsConfigurationAsCode:
     TRANSFORM_READ_FILE_FROM_WORKSPACE_CLI_NAME = (
         TRANSFORM_READ_FILE_FROM_WORKSPACE_LONG_OPTION.replace("_", "-")
     )
-    DOCKER_TAG_POSITIONAL_ARG = "tag"
-    DOCKER_OPT_SHORT_OPTION = "o"
-    DOCKER_OPT_LONG_OPTION = "opt"
-    RELEASE_BUILD_SHORT_OPTION = "r"
-    RELEASE_BUILD_LONG_OPTION = "release"
 
     _DESC = """Description: A small utility to aid in the construction of Jenkins containers."""
     _arg_parser = argparse.ArgumentParser(
@@ -198,8 +191,6 @@ class JenkinsConfigurationAsCode:
 
     def __init__(self):
 
-        self.repo_commit = None
-        self.repo_branch = None
         self.repo_names = list()
         self.casc = ruamel.yaml.comments.CommentedMap()
         self.toml = None
@@ -450,37 +441,6 @@ class JenkinsConfigurationAsCode:
                 help="clean PWD of the contents added by setup subcommand",
             )
 
-            # docker-build
-            docker_build = cls._arg_subparsers.add_parser(
-                cls.DOCKER_BUILD_SUBCOMMAND,
-                help="runs 'docker build'",
-                formatter_class=lambda prog: CustomRawDescriptionHelpFormatter(
-                    prog, max_help_position=35
-                ),
-                allow_abbrev=False,
-            )
-            docker_build.add_argument(
-                f"{cls.DOCKER_TAG_POSITIONAL_ARG}",
-                metavar="TAG",
-                help="this is to be a normal docker tag, or name:tag format",
-            )
-            docker_build.add_argument(
-                f"-{cls.DOCKER_OPT_SHORT_OPTION}",
-                f"--{cls.DOCKER_OPT_LONG_OPTION}",
-                action="append",
-                nargs="?",
-                help=(
-                    "passes options to 'docker build', e.g. [...] --opt "
-                    "'-t image:v1.0.0' --opt '-t image:latest'"
-                ),
-            )
-            docker_build.add_argument(
-                f"-{cls.RELEASE_BUILD_SHORT_OPTION}",
-                f"--{cls.RELEASE_BUILD_LONG_OPTION}",
-                action="store_true",
-                help="perform a docker build that is considered non-testing",
-            )
-
             args = vars(cls._arg_parser.parse_args())
             return args
         except SystemExit:
@@ -612,157 +572,6 @@ class JenkinsConfigurationAsCode:
             )
             print(e, file=sys.stderr)
             sys.exit(1)
-
-    def _load_current_git_commit(self):
-        """Grab the latest commit from the git repo.
-
-        Assumes the PWD is in a git 'working' directory.
-
-        Raises
-        ------
-        FileNotFoundError:
-            If the git executable does not exist in the PATH.
-
-        """
-        # credits to:
-        # https://stackoverflow.com/questions/11168141/find-which-commit-is-currently-checked-out-in-git#answer-42549385
-        try:
-            completed_process = subprocess.run(
-                [
-                    "git",
-                    "show",
-                    "--format=%h",
-                    "--no-patch",
-                ],
-                capture_output=True,
-                encoding="utf-8",
-                check=True,
-            )
-            self.repo_commit = completed_process.stdout.strip()
-        except FileNotFoundError as e:
-            print(
-                f"{PROGRAM_NAME}: {e.filename} cannot be found in the PATH!",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-    def _load_current_git_branch(self):
-        """Grab the current branch of the git repo.
-
-        Assumes the PWD is in a git 'working' directory.
-
-        Raises
-        ------
-        FileNotFoundError:
-            If the git executable does not exist in the PATH.
-
-        """
-        try:
-            completed_process = subprocess.run(
-                [
-                    "git",
-                    "branch",
-                    "--show-current",
-                ],
-                capture_output=True,
-                encoding="utf-8",
-                check=True,
-            )
-            self.repo_branch = completed_process.stdout.strip()
-        except FileNotFoundError as e:
-            print(
-                f"{PROGRAM_NAME}: {e.filename} cannot be found in the PATH!",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-    def _docker_build(self, tag, release, opts=None):
-        """Run a preset docker build command.
-
-        Should note only SIGINT is passed to the docker build process. This
-        should be good enough but can be opened to pass in/handle more process
-        signals.
-
-        Parameters
-        ----------
-        tag : str
-            This should be a docker tag, or 'name:tag'.
-        release : bool
-            Is this a 'release' build?
-        opts : list of str, optional
-            Options to be passed to the docker build subcommand
-            (default is the None).
-
-        Raises
-        ------
-        FileNotFoundError:
-            If the docker executable does not exist in the PATH.
-
-        Notes
-        -----
-        SIGSTOP according to the docs.python.org "...cannot be blocked.".
-        Presuming this also means it cannot be caught either.
-
-        """
-
-        def sigint_handler(sigint, frame):
-
-            docker_process.send_signal(sigint)
-
-        if opts is None:
-            opts = list()
-        parsed_opts = [
-            opt for opt_name_value in opts for opt in opt_name_value.split()
-        ]
-
-        docker_build = ["docker", "build"]
-        # The '.' represents the path context (or contents) that is sent to
-        # the docker daemon.
-        if not release:
-            docker_build += [
-                "--no-cache",
-                "--tag",
-                tag,
-            ]
-            docker_build += parsed_opts
-            docker_build += ["."]
-        else:
-            docker_build += [
-                "--no-cache",
-                "--build-arg",
-                f"BRANCH={self.repo_branch}",
-                "--build-arg",
-                f"COMMIT={self.repo_commit}",
-                "--tag",
-                tag,
-            ]
-            docker_build += parsed_opts
-            docker_build += ["."]
-
-        try:
-            docker_process = subprocess.Popen(
-                docker_build,
-                stderr=subprocess.PIPE,
-                encoding="utf-8",
-                env=os.environ,
-            )
-        except FileNotFoundError as e:
-            print(
-                f"{PROGRAM_NAME}: {e.filename} cannot be found in the PATH!",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        # check to see if the docker build process has exited
-        while docker_process.poll() is None:
-            signal.signal(signal.SIGINT, sigint_handler)
-        # docker_process.stderr itself is an _io.TextIOWrapper obj
-        if docker_process.returncode != 0:
-            raise subprocess.CalledProcessError(
-                docker_process.returncode,
-                docker_build,
-                stderr=docker_process.stderr.read(),
-            )
 
     def _merge_into_loaded_casc(self, casc_path):
         """Merge another casc file yaml with the loaded casc.
@@ -1027,9 +836,7 @@ class JenkinsConfigurationAsCode:
                     self._clone_git_repos([self.DEFAULT_BASE_IMAGE_REPO_URL])
             elif cmd_args[self.SUBCOMMAND] == self.ADDJOBS_SUBCOMMAND:
                 self._load_vcs_repos()
-                self._load_casc(
-                    cmd_args[self.CASC_PATH_LONG_OPTION]
-                )
+                self._load_casc(cmd_args[self.CASC_PATH_LONG_OPTION])
                 self._addjobs(
                     cmd_args[
                         self.TRANSFORM_READ_FILE_FROM_WORKSPACE_LONG_OPTION
@@ -1077,14 +884,6 @@ class JenkinsConfigurationAsCode:
                     )
                 else:
                     self._yaml_parser.dump(self.casc, self.DEFAULT_STDOUT_FD)
-            elif cmd_args[self.SUBCOMMAND] == self.DOCKER_BUILD_SUBCOMMAND:
-                self._load_current_git_branch()
-                self._load_current_git_commit()
-                self._docker_build(
-                    cmd_args[self.DOCKER_TAG_POSITIONAL_ARG],
-                    cmd_args[self.RELEASE_BUILD_LONG_OPTION],
-                    cmd_args[self.DOCKER_OPT_LONG_OPTION],
-                )
             sys.exit(0)
         except subprocess.CalledProcessError as e:
             # why yes, this is like the traceback.print_exception message!
