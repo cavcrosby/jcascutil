@@ -127,14 +127,8 @@ class JenkinsConfigurationAsCode:
     SUBCOMMAND = "subcommand"
     ADDJOBS_SUBCOMMAND = "addjobs"
     ADDAGENT_PLACEHOLDER_SUBCOMMAND = "addagent-placeholder"
-    ADDAGENT_PLACEHOLDER_SUBCOMMAND_CLI_NAME = (
-        ADDAGENT_PLACEHOLDER_SUBCOMMAND.replace("_", "-")
-    )
     SETUP_SUBCOMMAND = "setup"
     DOCKER_BUILD_SUBCOMMAND = "docker-build"
-    DOCKER_BUILD_SUBCOMMAND_CLI_NAME = DOCKER_BUILD_SUBCOMMAND.replace(
-        "_", "-"
-    )
 
     # positional/optional argument labels
     # used at the command line and to reference values of arguments
@@ -420,9 +414,8 @@ class JenkinsConfigurationAsCode:
             )
 
             # addagent-placeholder
-            # TODO(cavcrosby): at moment, the normal subcommand is compared in main vs the cli name. Is there any reason not to just use the cli name?
             addagent_placeholder = cls._arg_subparsers.add_parser(
-                cls.ADDAGENT_PLACEHOLDER_SUBCOMMAND_CLI_NAME,
+                cls.ADDAGENT_PLACEHOLDER_SUBCOMMAND,
                 help=(
                     "will add a placeholder(s) for a new jenkins agent, to be "
                     "defined at run time"
@@ -459,7 +452,7 @@ class JenkinsConfigurationAsCode:
 
             # docker-build
             docker_build = cls._arg_subparsers.add_parser(
-                cls.DOCKER_BUILD_SUBCOMMAND_CLI_NAME,
+                cls.DOCKER_BUILD_SUBCOMMAND,
                 help="runs 'docker build'",
                 formatter_class=lambda prog: CustomRawDescriptionHelpFormatter(
                     prog, max_help_position=35
