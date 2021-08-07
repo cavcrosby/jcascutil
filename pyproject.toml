@@ -4,9 +4,6 @@ version = "1.0.0"
 description = "A tool to aid in working with configuration as code (CasC) files for Jenkins"
 authors = ["Conner Crosby <conner@cavcrosby.tech>"]
 license = "MIT"
-packages = [
-    { include = "jcascutil" },
-]
 
 [tool.poetry.dependencies]
 python = "^3.8"
