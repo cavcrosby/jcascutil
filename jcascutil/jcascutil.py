@@ -697,13 +697,13 @@ class JenkinsConfigurationAsCode:
 
         """
         casc_ptr = self.casc
-        for index in reversed(range(1, num_of_agents + 1)):
-            if self.JENKINS_ROOT_KEY_YAML not in casc_ptr:
-                casc_ptr[self.JENKINS_ROOT_KEY_YAML] = []
-            casc_ptr = casc_ptr[self.JENKINS_ROOT_KEY_YAML]
-            if self.JENKINS_NODES_KEY_YAML not in casc_ptr:
-                casc_ptr[self.JENKINS_NODES_KEY_YAML] = []
-            casc_ptr = casc_ptr[self.JENKINS_NODES_KEY_YAML]
+        if self.JENKINS_ROOT_KEY_YAML not in casc_ptr:
+            casc_ptr[self.JENKINS_ROOT_KEY_YAML] = []
+        casc_ptr = casc_ptr[self.JENKINS_ROOT_KEY_YAML]
+        if self.JENKINS_NODES_KEY_YAML not in casc_ptr:
+            casc_ptr[self.JENKINS_NODES_KEY_YAML] = []
+        casc_ptr = casc_ptr[self.JENKINS_NODES_KEY_YAML]
+        for index in range(1, num_of_agents + 1):
             casc_ptr.append(
                 dict(
                     [
