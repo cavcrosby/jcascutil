@@ -666,7 +666,7 @@ def _addagent_placeholder(num_of_agents, casc):
         name: "foo"
         nodeDescription: "This is currently ran on the host..foo!"
         numExecutors: 2
-        remoteFS: "/var/lib/jenkins-agents/mainnode1"
+        remoteFS: "/var/lib/jenkins-agent/main-node1"
         retentionStrategy: "always"
 
     """
