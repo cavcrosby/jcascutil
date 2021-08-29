@@ -20,7 +20,7 @@ executables = \
 # gnu install directory variables
 prefix = ${HOME}/.local
 exec_prefix = ${prefix}
-# where to add link names that point to repo scripts
+# where to add shim(s) that point to repo script(s)
 bin_dir = ${exec_prefix}/bin
 
 # targets
@@ -34,7 +34,6 @@ CLEAN = clean
 VIRTUALENV_PYTHON_VERSION =
 
 # simply expanded variables
-# f ==> file
 entry_point := ${CURDIR}/${JCASCUTIL}.py
 virtenv_name := $(shell basename ${CURDIR})
 
