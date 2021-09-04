@@ -65,7 +65,7 @@ ${SETUP}:
 >	export PYENV_VERSION="${virtenv_name}"
 	# to ensure the most current versions of dependencies can be installed
 >	${PYTHON} -m ${PIP} install --upgrade ${PIP}
->	${PYTHON} -m ${PIP} install ${POETRY}
+>	${PYTHON} -m ${PIP} install ${POETRY}==1.1.7
 	# --no-root because we only want to install dependencies. 'pyenv exec' is needed
 	# as poetry is installed into a virtualenv bin dir that is not added to the
 	# current shell PATH.
