@@ -61,7 +61,7 @@ READ_FILE_FROM_WORKSPACE_ARGUMENT_REGEX = (
     r"(?<=readFileFromWorkspace\(').+(?='\))"
 )
 PWD_IDENTIFIER_REGEX = r"\.\/"
-SHELL_VARIABLE_REGEX = r"\$\{{1}\w+\}{1}|\$[a-zA-Z_]\w*"
+SHELL_VARIABLE_REGEX = r"\$[a-zA-Z_]\w*$|\$\{{1}\w+\}{1}"
 # assumes that any parsing will be on vars that are known shell variables
 SHELL_VARIABLE_NAME_REGEX = r"(?<=\$\{)\w+(?=\})|(?<=\$)[a-zA-Z_]\w*"
 ENV_VAR_REGEX = r"^[a-zA-Z_]\w*=.+"
