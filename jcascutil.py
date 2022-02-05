@@ -154,13 +154,15 @@ _common_parser.add_argument(
 def _meets_job_dsl_filereqs(repo_name, job_dsl_files):
     """Check if the found job-dsl files meet specific requirements.
 
-    Should note this is solely program specific and not
-    related to the limitations/restrictions of the job-dsl plugin itself.
-
     Returns
     -------
     bool
         If all the job-dsl file(s) meet the program requirements.
+
+    Notes
+    -----
+    Should note this is solely program specific and not related to the
+    limitations/restrictions of the job-dsl plugin itself.
 
     """
     num_of_job_dsls = len(job_dsl_files)
@@ -187,13 +189,15 @@ def _meets_job_dsl_filereqs(repo_name, job_dsl_files):
 def _meets_casc_filereqs(repo_name, casc_files):
     """Check if the found casc file(s) meet the requirements.
 
-    Should note this is solely program specific and not related to the
-    limitations/restrictions of the JCasC plugin itself.
-
     Returns
     -------
     bool
         If all the casc file(s) meet the program requirements.
+
+    Notes
+    -----
+    Should note this is solely program specific and not related to the
+    limitations/restrictions of the JCasC plugin itself.
 
     """
     num_of_cascs = len(casc_files)
@@ -204,9 +208,9 @@ def _meets_casc_filereqs(repo_name, casc_files):
         )
         return False
     elif num_of_cascs > 1:
-        # There should be no ambiguity in what casc file is worked on.
-        # This should not be opened to change considering another base
-        # image could just be created.
+        # There should be no ambiguity in what casc file is worked on. This
+        # should not be opened to change considering another base image could
+        # just be created.
         print(
             f"{_PROGRAM_NAME}: {repo_name} has more than one casc file!",
             file=sys.stderr,
@@ -216,7 +220,7 @@ def _meets_casc_filereqs(repo_name, casc_files):
         return True
 
 
-def _find_file_in_pwd(regex):
+def _find_files(regex):
     """Locates files in the PWD using regex.
 
     Parameters
@@ -231,8 +235,8 @@ def _find_file_in_pwd(regex):
 
     """
     regex = re.compile(regex)
-    # While the func name assumes one file will be returned
-    # its possible more than one can be returned.
+    # While the func assumes one file will be returned its possible more than
+    # one can be returned.
     files = [file for file in os.listdir() if regex.search(file)]
     return files
 
@@ -250,7 +254,7 @@ def _expand_env_vars(file, env_vars):
     Returns
     -------
     str
-        Same file but with env variables evaluated.
+        Same file contents but with env variables evaluated.
 
     Raises
     ------
@@ -259,7 +263,6 @@ def _expand_env_vars(file, env_vars):
 
     """
     # will check for '<key>=<value>' format
-    buffer = []
     env_var_names_to_values = dict()
     for env_var in env_vars:
         regex = re.compile(ENV_VAR_REGEX)
@@ -275,6 +278,7 @@ def _expand_env_vars(file, env_vars):
             )
             sys.exit(1)
 
+    buffer = []
     for line in file.splitlines(keepends=True):
         line_env_vars = re.findall(SHELL_VARIABLE_REGEX, line)
         modified_line = line
@@ -403,15 +407,13 @@ def retrieve_cmd_args():
 def _clone_git_repos(repo_urls, dest=os.getcwd()):
     """Fetch/clone git repos.
 
-    These git repos will be placed into the directory PROJECTS_DIR_PATH.
-
     Parameters
     ----------
     repo_urls : list of str
         Git repo urls to make working copies of.
     dest : str, optional
         Destination path where the git repos will be
-        cloned to (default is the PWD).
+        cloned to.
 
     Raises
     ------
@@ -442,8 +444,8 @@ def _clone_git_repos(repo_urls, dest=os.getcwd()):
         os.chdir(_PROGRAM_ROOT)
 
 
-def _load_vcs_repos():
-    """How version source control (vcs) repos are loaded.
+def _get_vcs_repos():
+    """Get the vcs repo names.
 
     Returns
     -------
@@ -472,10 +474,7 @@ def _load_vcs_repos():
 
 
 def _load_casc(casc_path):
-    """Load the casc required by the JCasC plugin.
-
-    Usually this file is called 'casc.yaml' but can be set to something
-    different depending on the CASC_FILENAME_REGEX.
+    """Load the casc contents.
 
     Parameters
     ----------
@@ -496,14 +495,22 @@ def _load_casc(casc_path):
     --------
     CASC_FILENAME_REGEX
 
+    Notes
+    -----
+    Usually this file is called 'casc.yaml' but can be set to something
+    different depending on the CASC_FILENAME_REGEX.
+
     """
     if casc_path is None:
         # By default, the base image's casc yaml will be loaded. The
         # yaml will be searched for, inspected, then the path to the
         # yaml file is set.
         os.chdir(DEFAULT_BASE_IMAGE_REPO_NAME)
-        casc_files = _find_file_in_pwd(CASC_FILENAME_REGEX)
+        casc_files = _find_files(CASC_FILENAME_REGEX)
 
+        # DISCUSS(cavcrosby): the following func just checks to make sure only
+        # one casc file exists in the base image repo. Has nothing todo with
+        # the actual casc file or contents itself.
         if not _meets_casc_filereqs(DEFAULT_BASE_IMAGE_REPO_NAME, casc_files):
             sys.exit(1)
 
@@ -545,15 +552,15 @@ def _load_configs():
         sys.exit(1)
 
 
-def _merge_into_loaded_casc(casc_path, casc):
-    """Merge another casc file yaml with the loaded casc.
+def _merge_casc(casc_path, into):
+    """Merge a casc file with another casc file's contents.
 
     Parameters
     ----------
     casc_path : str
-        Name of the casc file to merge with loaded casc.
-    casc : ruamel.yaml.comments.CommentedMap
-        The casc file contents.
+        Path of the casc file to merge.
+    into : ruamel.yaml.comments.CommentedMap
+        The casc file contents who we wish to merge into.
 
     Raises
     ------
@@ -562,29 +569,27 @@ def _merge_into_loaded_casc(casc_path, casc):
 
     """
 
-    def __merge_into_loaded_casc_(casc_ptr, loaded_casc_ptr=casc):
-        """Traverse the casc, merging it with the loaded casc."""
+    def __merge_casc_(casc_ptr, into_ptr=into):
+        """Traverse the casc, merging it with the other casc."""
         for key in casc_ptr.keys():
-            if loaded_casc_ptr.get(key, default=None) is None:
-                loaded_casc_ptr[key] = casc_ptr[key]
-            elif isinstance(
-                loaded_casc_ptr[key], ruamel.yaml.comments.CommentedMap
-            ):
+            if into_ptr.get(key, default=None) is None:
+                into_ptr[key] = casc_ptr[key]
+            elif isinstance(into_ptr[key], ruamel.yaml.comments.CommentedMap):
                 # If the child node is also a parent node, we will want to
                 # iterate until we get to the bottom.
-                __merge_into_loaded_casc_(casc_ptr[key], loaded_casc_ptr[key])
+                __merge_casc_(casc_ptr[key], into_ptr[key])
             else:
-                loaded_casc_ptr.update(casc_ptr)
+                into_ptr.update(casc_ptr)
 
     # 'as' variable name inspired from Python stdlib documentation:
     # https://docs.python.org/3/reference/compound_stmts.html#grammar-token-with-stmt
     with open(casc_path, "r") as casc_target:
         casc = YAML_PARSER.load(casc_target)
-        __merge_into_loaded_casc_(casc)
+        __merge_casc_(casc)
 
 
 def _transform_rffw(repo_name, job_dsl):
-    """Transform 'readFileFromWorkspace' expressions from job-dsl.
+    """Transform 'readFileFromWorkspace' expressions in job-dsl.
 
     Parameters
     ----------
@@ -596,9 +601,9 @@ def _transform_rffw(repo_name, job_dsl):
     Returns
     -------
     job_dsl : str
-        Same contents but with readFileFromWorkspace expressions
-        transformed to be compatible with in a environment where
-        Jenkins workspaces do not exist.
+        Same contents but with readFileFromWorkspace expressions transformed to
+        be compatible with a environment where Jenkins workspaces do not
+        initally exist.
 
     """
     # assuming the job-dsl created also assumes the PWD == WORKSPACE
@@ -636,25 +641,25 @@ def _transform_rffw(repo_name, job_dsl):
 def _addagent_placeholder(num_of_agents, casc):
     """Add specific Jenkins agent placeholders to be defined at runtime.
 
-    This is allow images to define env vars for Jenkins agents without
-    being explicit. Allowing the user to ignore the placeholders and to
-    instantiate the Jenkins images without other Jenkins agents.
-
     Parameters
     ----------
     num_of_agents : int
-        The number of agents to add to the casc used by JCasC.
+        The number of agent placeholders to add to the casc.
     casc : ruamel.yaml.comments.CommentedMap
         The casc file contents.
 
     Notes
     -----
-    Jenkins agents might also be called Jenkins 'nodes'. The term 'agent'
-    will be used where possible to provide more distinction between the
-    main (or master) Jenkins node vs a Jenkins agent.
+    This is allow images to define env vars for Jenkins agents without being
+    explicit. This also means the user can choose to ignore the placeholders
+    and to instantiate the Jenkins images without other Jenkins agents.
 
-    Below is an example of what is trying to be constructed through
-    this function (assumes a pointer is at the list of nodes):
+    Jenkins agents might also be called Jenkins 'nodes'. The term 'agent' will
+    be used where possible to provide more distinction between the main
+    (or master) Jenkins node vs a Jenkins agent.
+
+    Below is an example of what is trying to be constructed through this
+    function (assumes a pointer is at the list of nodes):
 
     - permanent:
         launcher:
@@ -747,13 +752,13 @@ def _addagent_placeholder(num_of_agents, casc):
 
 
 def _addjobs(t_rffw, repo_names, casc):
-    """Add job-dsl(s) to casc used by JCasC.
+    """Add job-dsl(s) to casc.
 
     Parameters
     ----------
     t_rffw : bool
-        Whether or not to transform 'readFileFromWorkspace' (rffw)
-        expressions from job-dsl(s).
+        Whether or not to transform 'readFileFromWorkspace' (rffw) expressions
+        from job-dsl(s).
     repo_names : list of str
         Version source control (e.g. git, mercurial) repo names.
     casc : ruamel.yaml.comments.CommentedMap
@@ -768,7 +773,10 @@ def _addjobs(t_rffw, repo_names, casc):
     for repo_name in repo_names:
         try:
             os.chdir(repo_name)
-            job_dsl_files = _find_file_in_pwd(JOB_DSL_FILENAME_REGEX)
+            job_dsl_files = _find_files(JOB_DSL_FILENAME_REGEX)
+            # DISCUSS(cavcrosby): the following func just checks to make sure
+            # only one job-dsl file exists in the repo. Has nothing todo with
+            # the actual job-dsl file or contents itself.
             if not _meets_job_dsl_filereqs(repo_name, job_dsl_files):
                 os.chdir("..")
                 continue
@@ -810,33 +818,25 @@ def main(args):
                     dest=PROJECTS_DIR_PATH,
                 )
                 _clone_git_repos([DEFAULT_BASE_IMAGE_REPO_URL])
-        elif args[SUBCOMMAND] == ADDJOBS_SUBCOMMAND:
-            repo_names = _load_vcs_repos()
+        elif (
+            args[SUBCOMMAND] == ADDJOBS_SUBCOMMAND
+            or args[SUBCOMMAND]  # noqa: W503
+            == ADDAGENT_PLACEHOLDER_SUBCOMMAND  # noqa: W503
+        ):
             casc = _load_casc(args[CASC_PATH_LONG_OPTION])
-            _addjobs(
-                args[TRANSFORM_READ_FILE_FROM_WORKSPACE_LONG_OPTION],
-                repo_names,
-                casc,
-            )
-            if args[MERGE_CASC_LONG_OPTION]:
-                _merge_into_loaded_casc(args[MERGE_CASC_LONG_OPTION], casc)
-            if args[ENV_VAR_LONG_OPTION]:
-                YAML_PARSER.dump(
+            if args[SUBCOMMAND] == ADDJOBS_SUBCOMMAND:
+                repo_names = _get_vcs_repos()
+                _addjobs(
+                    args[TRANSFORM_READ_FILE_FROM_WORKSPACE_LONG_OPTION],
+                    repo_names,
                     casc,
-                    DEFAULT_STDOUT_FD,
-                    transform=(
-                        lambda string: _expand_env_vars(
-                            string, args[ENV_VAR_LONG_OPTION]
-                        )
-                    ),
                 )
-            else:
-                YAML_PARSER.dump(casc, DEFAULT_STDOUT_FD)
-        elif args[SUBCOMMAND] == ADDAGENT_PLACEHOLDER_SUBCOMMAND:
-            casc = _load_casc(args[CASC_PATH_LONG_OPTION])
-            _addagent_placeholder(args[NUM_OF_AGENTS_TO_ADD_LONG_OPTION], casc)
+            if args[SUBCOMMAND] == ADDAGENT_PLACEHOLDER_SUBCOMMAND:
+                _addagent_placeholder(
+                    args[NUM_OF_AGENTS_TO_ADD_LONG_OPTION], casc
+                )
             if args[MERGE_CASC_LONG_OPTION]:
-                _merge_into_loaded_casc(args[MERGE_CASC_LONG_OPTION], casc)
+                _merge_casc(args[MERGE_CASC_LONG_OPTION], into=casc)
             if args[ENV_VAR_LONG_OPTION]:
                 YAML_PARSER.dump(
                     casc,
