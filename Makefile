@@ -1,44 +1,24 @@
-# special makefile variables
-.DEFAULT_GOAL := help
-.RECIPEPREFIX := >
+include base.mk
 
 # recursive variables
-SHELL = /usr/bin/sh
+# DISCUSS(cavcrosby): do I usually leave a newline between the type of variables
+# below and if the next line would be another comment?
+# DISCUSS(cavcrosby): I believe the manual for GNU make details that
+# INSTALL/UNINSTALL targets should contain the DESTDIR variable appended to the
+# destination for executables.
+# include other generic makefiles
+include python.mk
+# overrides defaults set by included makefiles
+VIRTUALENV_PYTHON_VERSION = 3.9.5
+PYTHON_VIRTUALENV_NAME = $(shell basename ${CURDIR})
 
 # executables
-POETRY = poetry
-PIP = pip
-PYENV = pyenv
-PYTHON = python
-JCASCUTIL = jcascutil
-executables = \
-	${POETRY}\
-	${PIP}\
-	${PYENV}\
-	${PYTHON}
-
-# gnu install directory variables
-prefix = ${HOME}/.local
-exec_prefix = ${prefix}
-# where to add shim(s) that point to repo script(s)
-bin_dir = ${exec_prefix}/bin
-
-# targets
-HELP = help
-SETUP = setup
-INSTALL = install
-UNINSTALL = uninstall
-CLEAN = clean
-
-# to be passed in at make runtime
-VIRTUALENV_PYTHON_VERSION =
+JCASCUTIL = jcascutil.py
 
 # simply expanded variables
-entry_point := ${CURDIR}/${JCASCUTIL}.py
-virtenv_name := $(shell basename ${CURDIR})
+override executables := \
+	${python_executables}
 
-# inspired from:
-# https://stackoverflow.com/questions/5618615/check-if-a-program-exists-from-a-makefile#answer-25668869
 _check_executables := $(foreach exec,${executables},$(if $(shell command -v ${exec}),pass,$(error "No ${exec} in PATH")))
 
 .PHONY: ${HELP}
@@ -50,27 +30,9 @@ ${HELP}:
 >	@echo '  ${INSTALL}            - makes the program available to use from the filesystem'
 >	@echo '  ${UNINSTALL}          - removes the program from the filesystem and uninstalls'
 >	@echo '                       the virtualenv'
->	@echo 'Public make configurations (e.g. make [config]=1 [targets]):'
->	@echo '  bin_dir                       - determines where the program is installed/uninstalled'
->	@echo '                                  from (default is "${bin_dir}")'
->	@echo '  VIRTUALENV_PYTHON_VERSION     - python version used by the project virtualenv (e.g. 3.8.2)'
 
 .PHONY: ${SETUP}
-${SETUP}:
->	@[ -n "${VIRTUALENV_PYTHON_VERSION}" ] || { echo "VIRTUALENV_PYTHON_VERSION was not passed into make"; exit 1; }
-	# assumes that the VIRTUALENV_PYTHON_VERSION is already installed by pyenv
->	${PYENV} virtualenv "${VIRTUALENV_PYTHON_VERSION}" "${virtenv_name}"
-	# mainly used to enter the virtualenv when in the repo
->	${PYENV} local "${virtenv_name}"
->	export PYENV_VERSION="${virtenv_name}"
-	# to ensure the most current versions of dependencies can be installed
->	${PYTHON} -m ${PIP} install --upgrade ${PIP}
->	${PYTHON} -m ${PIP} install ${POETRY}==1.1.7
-	# --no-root because we only want to install dependencies. 'pyenv exec' is needed
-	# as poetry is installed into a virtualenv bin dir that is not added to the
-	# current shell PATH.
->	${PYENV} exec ${POETRY} install --no-root || { echo "${POETRY} failed to install project dependencies"; exit 1; }
->	unset PYENV_VERSION
+${SETUP}: ${PYENV_POETRY_SETUP}
 
 # .ONESHELL is needed to ensure all the commands below run in one shell session.
 # A makefile 'define' variable does not work because we will want make to
@@ -82,11 +44,11 @@ ${INSTALL}:
 >	#!/bin/bash
 >	#
 >	# Small shim that calls the program below in the proper python virtualenv.
->	# PYENV_VERSION allows the program to run in the virtenv_name without doing
+>	# PYENV_VERSION allows the program to run in the PYTHON_VIRTUALENV_NAME without doing
 >	# additional shell setup. pyenv will still process the program name through an
 >	# appropriately (same) named shim but this will ultimately still call this shim.
->	export PYENV_VERSION="${virtenv_name}"
->	"${entry_point}" "$$@"
+>	export PYENV_VERSION="${PYTHON_VIRTUALENV_NAME}"
+>	"${CURDIR}/${JCASCUTIL}" "$$@"
 >	unset PYENV_VERSION
 >	
 >	_EOF_
@@ -96,4 +58,4 @@ ${INSTALL}:
 .PHONY: ${UNINSTALL}
 ${UNINSTALL}:
 >	rm --force "${bin_dir}/${JCASCUTIL}"
->	${PYENV} uninstall --force "${virtenv_name}"
+>	${PYENV} uninstall --force "${PYTHON_VIRTUALENV_NAME}"
