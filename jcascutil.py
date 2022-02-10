@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import traceback
+from os.path import join
 
 # Third Party Imports
 import ruamel.yaml
@@ -151,6 +152,41 @@ _common_parser.add_argument(
 )
 
 
+class JcascFile:
+    """Represent a related file to the CasC plugin for Jenkins.
+
+    Parameters
+    ----------
+    type_ : str
+        A simple string denoting what kind of file (e.g. casc, job-dsl).
+    regex : str
+        Regex for the file name.
+    *args : tuple
+        Directory paths relative in a project containing Jcasc files.
+
+    Attributes
+    ----------
+    DEFAULT_DIR_PATH : str
+        Default relative directory path in a project containing Jcasc files.
+
+    """
+
+    DEFAULT_DIR_PATH = ""  # PWD by default
+
+    def __init__(self, type_, regex, *args):
+
+        self.type_ = type_
+        self.regex = regex
+        self.dir_paths = args
+        if not self.dir_paths:
+            self.dir_paths = (self.DEFAULT_DIR_PATH,)
+
+    def __str__(self):  # noqa: D105
+        return (
+            f"(type={self.type_}, regex={self.regex}, paths={self.dir_paths})"
+        )
+
+
 def _meets_job_dsl_filereqs(repo_name, job_dsl_files):
     """Check if the found job-dsl files meet specific requirements.
 
@@ -220,25 +256,35 @@ def _meets_casc_filereqs(repo_name, casc_files):
         return True
 
 
-def _find_files(regex):
-    """Locates files in the PWD using regex.
+def _find_jcasc_files(jcasc_file_meta, project_path):
+    """Locate files specified by the Jcasc file metadata.
 
     Parameters
     ----------
-    regex : str
-        Regex to use for searching for file(s) in PWD.
+    jcasc_file_meta : JcascFile
+        Jcasc file metadata.
+    project_path : pathlib.Path
+        Represents absolute path to the project containing Jcasc files.
 
     Returns
     -------
-    files: list of str
-        The files found.
+    file_paths: tuple of pathlib.Path
+        The file paths found.
 
     """
-    regex = re.compile(regex)
-    # While the func assumes one file will be returned its possible more than
-    # one can be returned.
-    files = [file for file in os.listdir() if regex.search(file)]
-    return files
+    regex = re.compile(jcasc_file_meta.regex)
+    file_paths = []
+    for dir_path in jcasc_file_meta.dir_paths:
+        try:
+            for file in os.listdir(join(project_path, dir_path)):
+                if regex.search(file):
+                    file_paths.append(
+                        join(project_path, dir_path, pathlib.Path(file))
+                    )
+        except FileNotFoundError:
+            continue
+
+    return tuple(file_paths)
 
 
 def _expand_env_vars(file, env_vars):
@@ -506,20 +552,21 @@ def _load_casc(casc_path):
         # yaml will be searched for, inspected, then the path to the
         # yaml file is set.
         os.chdir(DEFAULT_BASE_IMAGE_REPO_NAME)
-        casc_files = _find_files(CASC_FILENAME_REGEX)
+
+        casc_meta = JcascFile("casc", CASC_FILENAME_REGEX)
+        casc_file_paths = _find_jcasc_files(
+            casc_meta, pathlib.Path(os.getcwd())
+        )
 
         # DISCUSS(cavcrosby): the following func just checks to make sure only
         # one casc file exists in the base image repo. Has nothing todo with
         # the actual casc file or contents itself.
-        if not _meets_casc_filereqs(DEFAULT_BASE_IMAGE_REPO_NAME, casc_files):
+        if not _meets_casc_filereqs(
+            DEFAULT_BASE_IMAGE_REPO_NAME, casc_file_paths
+        ):
             sys.exit(1)
 
-        casc_file = casc_files[0]
-        casc_path = os.path.join(
-            _PROGRAM_ROOT,
-            DEFAULT_BASE_IMAGE_REPO_NAME,
-            casc_file,
-        )
+        casc_path = casc_file_paths[0]
         os.chdir(_PROGRAM_ROOT)
     with open(casc_path, "r") as casc_target:
         return YAML_PARSER.load(casc_target)
@@ -773,16 +820,25 @@ def _addjobs(t_rffw, repo_names, casc):
     for repo_name in repo_names:
         try:
             os.chdir(repo_name)
-            job_dsl_files = _find_files(JOB_DSL_FILENAME_REGEX)
+
+            job_dsl_meta = JcascFile(
+                "job-dsl",
+                JOB_DSL_FILENAME_REGEX,
+                JcascFile.DEFAULT_DIR_PATH,
+                ".jenkins",
+            )
+            job_dsl_file_paths = _find_jcasc_files(
+                job_dsl_meta, pathlib.Path(os.getcwd())
+            )
             # DISCUSS(cavcrosby): the following func just checks to make sure
             # only one job-dsl file exists in the repo. Has nothing todo with
             # the actual job-dsl file or contents itself.
-            if not _meets_job_dsl_filereqs(repo_name, job_dsl_files):
+            if not _meets_job_dsl_filereqs(repo_name, job_dsl_file_paths):
                 os.chdir("..")
                 continue
 
-            job_dsl_file = job_dsl_files[0]
-            with open(job_dsl_file, "r") as job_dsl_target:
+            job_dsl_file_path = job_dsl_file_paths[0]
+            with open(job_dsl_file_path, "r") as job_dsl_target:
                 job_dsl = job_dsl_target.read()
             if t_rffw:
                 job_dsl = _transform_rffw(repo_name, job_dsl)
