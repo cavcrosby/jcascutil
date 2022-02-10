@@ -1,0 +1,6 @@
+[flake8]
+# MONITOR(cavcrosby): in the short-term, flake8 does not intend to support
+# 'pyproject.toml'. That said this may change, for reference:
+# https://github.com/PyCQA/flake8/issues/1501
+# https://github.com/PyCQA/flake8/issues/234
+docstring-convention = numpy
