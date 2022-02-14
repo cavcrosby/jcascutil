@@ -447,6 +447,10 @@ def retrieve_cmd_args():
         args = vars(_arg_parser.parse_args())
         return args
     except SystemExit:
+        # TODO(cavcrosby): this conflicts with -h being passed in (using -h as
+        # an option should NOT return a status code of 1), also, the shim for
+        # this utility does not report this when jcascutil.py returns a
+        # non-zero status code.
         sys.exit(1)
 
 
