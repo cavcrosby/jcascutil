@@ -1,11 +1,7 @@
 include base.mk
 
 # recursive variables
-# DISCUSS(cavcrosby): do I usually leave a newline between the type of variables
-# below and if the next line would be another comment?
-# DISCUSS(cavcrosby): I believe the manual for GNU make details that
-# INSTALL/UNINSTALL targets should contain the DESTDIR variable appended to the
-# destination for executables.
+
 # include other generic makefiles
 include python.mk
 # overrides defaults set by included makefiles
