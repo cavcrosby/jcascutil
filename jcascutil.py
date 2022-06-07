@@ -12,6 +12,7 @@ import traceback
 from os.path import join
 
 # Third Party Imports
+from pylib.argparse import CustomRawDescriptionHelpFormatter
 import ruamel.yaml
 
 # import inspired from:
@@ -20,7 +21,6 @@ from ruamel.yaml import scalarstring
 import toml
 
 # Local Application Imports
-from pylib.argparse import CustomRawDescriptionHelpFormatter
 
 # constants and other program configurations
 _PROGRAM_NAME = os.path.basename(os.path.abspath(__file__))
