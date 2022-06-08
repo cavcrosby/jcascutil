@@ -862,8 +862,10 @@ def _addjobs(t_rffw, repo_names, casc):
     os.chdir(_PROGRAM_ROOT)
 
 
-def main(args):
+def main():
     """Start the main program execution."""
+    # TODO(cavcrosby): find a better place to invoke this function
+    args = retrieve_cmd_args()
     try:
         if args[SUBCOMMAND] == SETUP_SUBCOMMAND:
             configs = _load_configs()
@@ -941,6 +943,5 @@ def main(args):
 
 
 if __name__ == "__main__":
-    args = retrieve_cmd_args()
-    main(args)
+    main()
     sys.exit(0)
